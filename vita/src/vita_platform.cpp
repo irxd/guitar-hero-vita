@@ -153,9 +153,59 @@ LinkProgramFn realLinkProgram = nullptr;
 struct ShaderInfo {
     vita::ShaderStage stage = vita::ShaderStage::Unknown;
     std::vector<std::pair<int, std::string>> attributes;
+    bool usesVertexId = false;
 };
 std::map<GLuint, ShaderInfo> gShaders;
 std::map<GLuint, std::vector<GLuint>> gProgramShaders;
+
+// --- gl_VertexID emulation -------------------------------------------------
+// Programs whose vertex shader read gl_VertexID (glsl_es100.cpp turned it
+// into the vita_VertexID attribute). glDrawArrays feeds that attribute from
+// a small buffer of 0, 1, 2, ... while such a program is current.
+using UseProgramFn = void (*)(GLuint);
+using DrawArraysFn = void (*)(GLenum, GLint, GLsizei);
+UseProgramFn realUseProgram = nullptr;
+DrawArraysFn realDrawArrays = nullptr;
+std::map<GLuint, bool> gProgramUsesVertexId;
+GLuint gCurrentProgram = 0;
+GLuint gVertexIdBuffer = 0;
+constexpr GLsizei kVertexIdCount = 256;
+GLuint gVertexIdLocation = 15;
+
+void hookUseProgram(GLuint program) {
+    gCurrentProgram = program;
+    realUseProgram(program);
+}
+
+void hookDrawArrays(GLenum mode, GLint first, GLsizei count) {
+    auto it = gProgramUsesVertexId.find(gCurrentProgram);
+    if (it == gProgramUsesVertexId.end() || !it->second) {
+        realDrawArrays(mode, first, count);
+        return;
+    }
+    if (first < 0 || first + count > kVertexIdCount) {
+        SDL_Log("vita: glDrawArrays(%d, %d) needs more vertex ids than %d; not drawn", first, count, kVertexIdCount);
+        return;
+    }
+    if (!gVertexIdBuffer) {
+        float ids[kVertexIdCount];
+        for (GLsizei i = 0; i < kVertexIdCount; ++i) ids[i] = float(i);
+        glGenBuffers(1, &gVertexIdBuffer);
+        GLint previous = 0;
+        glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &previous);
+        glBindBuffer(GL_ARRAY_BUFFER, gVertexIdBuffer);
+        glBufferData(GL_ARRAY_BUFFER, sizeof ids, ids, GL_STATIC_DRAW);
+        glBindBuffer(GL_ARRAY_BUFFER, GLuint(previous));
+    }
+    GLint previous = 0;
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &previous);
+    glBindBuffer(GL_ARRAY_BUFFER, gVertexIdBuffer);
+    glVertexAttribPointer(gVertexIdLocation, 1, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glEnableVertexAttribArray(gVertexIdLocation);
+    realDrawArrays(mode, first, count);
+    glDisableVertexAttribArray(gVertexIdLocation);
+    glBindBuffer(GL_ARRAY_BUFFER, GLuint(previous));
+}
 
 void saveText(const char* path, const std::string& text) {
     if (SDL_IOStream* out = SDL_IOFromFile(path, "wb")) {
@@ -197,6 +247,8 @@ void hookShaderSource(GLuint shader, GLsizei count, const GLchar* const* strings
     if (kRewriteToEs100) {
         vita::Es100Result es = vita::toGlslEs100(src, info.stage);
         info.attributes = std::move(es.attributes);
+        info.usesVertexId = es.usesVertexId;
+        if (es.usesVertexId) SDL_Log("vita: shader %u: gl_VertexID -> attribute %s", shader, vita::kVertexIdAttribute);
         for (const std::string& note : es.notes) SDL_Log("vita: shader %u: %s", shader, note.c_str());
         src = std::move(es.source);
     }
@@ -228,11 +280,18 @@ void hookCompileShader(GLuint shader) {
 }
 
 void hookLinkProgram(GLuint program) {
+    bool usesVertexId = false;
     for (GLuint shader : gProgramShaders[program]) {
         for (const auto& [location, name] : gShaders[shader].attributes) {
             glBindAttribLocation(program, GLuint(location), name.c_str());
             if (kTraceShaders) SDL_Log("vita:   bind attribute %d = %s", location, name.c_str());
         }
+        usesVertexId = usesVertexId || gShaders[shader].usesVertexId;
+    }
+    gProgramUsesVertexId[program] = usesVertexId;
+    if (usesVertexId) {
+        glBindAttribLocation(program, gVertexIdLocation, vita::kVertexIdAttribute);
+        if (kTraceShaders) SDL_Log("vita:   bind attribute %u = %s", gVertexIdLocation, vita::kVertexIdAttribute);
     }
     if (kTraceShaders) SDL_Log("vita: glLinkProgram program %u ...", program);
     realLinkProgram(program);
@@ -248,6 +307,10 @@ void initVitaGl() {
     SDL_Log("vita: vglInitExtended(%dx%d, RAM threshold %d MB)", kScreenWidth, kScreenHeight, kVglRamThreshold >> 20);
     vglInitExtended(0, kScreenWidth, kScreenHeight, kVglRamThreshold, SCE_GXM_MULTISAMPLE_NONE);
     gVglReady = true;
+    GLint maxAttribs = 0;
+    glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &maxAttribs);
+    if (maxAttribs > 0) gVertexIdLocation = GLuint(maxAttribs - 1);  // gd01 uses 0..4
+    SDL_Log("vita: %d vertex attributes; %s at %u", maxAttribs, vita::kVertexIdAttribute, gVertexIdLocation);
     SDL_Log("vita: vitaGL ready: %s / %s; free VRAM %u KB, RAM %u KB",
             reinterpret_cast<const char*>(glGetString(GL_RENDERER)),
             reinterpret_cast<const char*>(glGetString(GL_VERSION)),
@@ -368,6 +431,14 @@ SDL_FunctionPointer __wrap_SDL_GL_GetProcAddress(const char* name) {
         if (std::strcmp(name, "glLinkProgram") == 0) {
             realLinkProgram = reinterpret_cast<LinkProgramFn>(fn);
             return reinterpret_cast<SDL_FunctionPointer>(hookLinkProgram);
+        }
+        if (std::strcmp(name, "glUseProgram") == 0) {
+            realUseProgram = reinterpret_cast<UseProgramFn>(fn);
+            return reinterpret_cast<SDL_FunctionPointer>(hookUseProgram);
+        }
+        if (std::strcmp(name, "glDrawArrays") == 0) {
+            realDrawArrays = reinterpret_cast<DrawArraysFn>(fn);
+            return reinterpret_cast<SDL_FunctionPointer>(hookDrawArrays);
         }
     }
     return fn;

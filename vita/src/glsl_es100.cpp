@@ -3,6 +3,7 @@
 #include "glsl_es100.h"
 
 #include <cctype>
+#include <cstring>
 #include <regex>
 #include <sstream>
 
@@ -40,6 +41,128 @@ bool containsWord(const std::string& s, const std::string& word) {
         if (startOk && endOk) return true;
     }
     return false;
+}
+
+// gl_VertexID with integer bit operations: neither exists in GLSL ES 1.00.
+// gd01's full-screen passes use these exact expressions on vertex ids 0..3;
+// each becomes float arithmetic on the vita_VertexID attribute (identical
+// results for 0..3: x & 1 == mod(x, 2), x >> 1 == floor(x / 2), and
+// x & 2 == floor(x / 2) * 2).
+struct VertexIdForm {
+    const char* glsl300;
+    const char* glsl100;
+};
+constexpr VertexIdForm kVertexIdForms[] = {
+    // renderer.cpp (quad, GL_TRIANGLE_STRIP 0..3)
+    {"vec2((gl_VertexID & 1) * 2 - 1, (gl_VertexID >> 1) * 2 - 1)",
+     "vec2(mod(vita_VertexID, 2.0) * 2.0 - 1.0, floor(vita_VertexID * 0.5) * 2.0 - 1.0)"},
+    // renderer.cpp, post_fx.cpp (full-screen triangle, GL_TRIANGLES 0..2)
+    {"vec2(float((gl_VertexID & 1) << 2) - 1.0, float((gl_VertexID & 2) << 1) - 1.0)",
+     "vec2(mod(vita_VertexID, 2.0) * 4.0 - 1.0, floor(vita_VertexID * 0.5) * 4.0 - 1.0)"},
+    // vk_upscaler.cpp (not in the Vita build; kept for completeness)
+    {"vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2))",
+     "vec2(mod(vita_VertexID, 2.0) * 2.0, floor(vita_VertexID * 0.5) * 2.0)"},
+};
+
+// Replaces the known gl_VertexID expressions; true if any gl_VertexID was in
+// the source (whether or not every use could be converted).
+bool convertVertexId(std::string& s, std::vector<std::string>& notes) {
+    if (!containsWord(s, "gl_VertexID")) return false;
+    for (const VertexIdForm& f : kVertexIdForms)
+        for (size_t at = s.find(f.glsl300); at != std::string::npos; at = s.find(f.glsl300, at))
+            s.replace(at, std::strlen(f.glsl300), f.glsl100), at += std::strlen(f.glsl100);
+    if (containsWord(s, "gl_VertexID"))
+        notes.push_back("gl_VertexID in an expression with no GLSL ES 1.00 form here (add it to kVertexIdForms)");
+    // The attribute goes after the #version / #define lines.
+    size_t at = 0;
+    while (s.compare(at, 1, "#") == 0) {
+        size_t eol = s.find('\n', at);
+        if (eol == std::string::npos) break;
+        at = eol + 1;
+    }
+    s.insert(at, std::string("attribute float ") + kVertexIdAttribute + ";\n");
+    return true;
+}
+
+// Inserts `text` after the leading #-directives, precision statements and the
+// vita_VertexID attribute, i.e. before the shader's own declarations.
+void insertAfterPreamble(std::string& s, const std::string& text) {
+    size_t at = 0;
+    while (at < s.size()) {
+        const size_t eol = s.find('\n', at);
+        if (eol == std::string::npos) break;
+        const std::string line = s.substr(at, eol - at);
+        const size_t first = line.find_first_not_of(" \t");
+        if (first == std::string::npos || line[first] == '#' || line.compare(first, 10, "precision ") == 0 ||
+            line.find(kVertexIdAttribute) != std::string::npos)
+            at = eol + 1;
+        else
+            break;
+    }
+    s.insert(at, text);
+}
+
+// Splits "a, f(b, c), d" at its top-level commas.
+std::vector<std::string> splitArgs(const std::string& args) {
+    std::vector<std::string> out;
+    int depth = 0;
+    std::string cur;
+    for (char c : args) {
+        if (c == '(') ++depth;
+        if (c == ')') --depth;
+        if (c == ',' && depth == 0) {
+            out.push_back(cur);
+            cur.clear();
+        } else {
+            cur += c;
+        }
+    }
+    out.push_back(cur);
+    for (std::string& a : out) {
+        const size_t b = a.find_first_not_of(" \t"), e = a.find_last_not_of(" \t");
+        a = b == std::string::npos ? std::string() : a.substr(b, e - b + 1);
+    }
+    return out;
+}
+
+// GLSL ES 1.00 has no array constructors: `[const] T name[N] = T[N](a, b, ...);`
+// becomes `T name[N]; name[0] = a; name[1] = b; ...` (on one line, so line
+// numbers in compiler messages still match the original).
+void convertArrayConstructors(std::string& s, std::vector<std::string>& notes) {
+    static const std::regex kArrayInit(
+        R"((^|\n)([ \t]*)(?:const[ \t]+)?(\w+)[ \t]+(\w+)[ \t]*\[[ \t]*(\d+)[ \t]*\][ \t]*=[ \t]*\w+[ \t]*\[[ \t]*\d*[ \t]*\][ \t]*\(([^;]*)\)[ \t]*;)");
+    std::string out;
+    auto begin = s.cbegin();
+    std::smatch m;
+    while (std::regex_search(begin, s.cend(), m, kArrayInit)) {
+        out.append(begin, m[0].first);
+        const std::string type = m[3], name = m[4], count = m[5];
+        const std::vector<std::string> values = splitArgs(m[6]);
+        std::string line = m[1].str() + m[2].str() + type + " " + name + "[" + count + "];";
+        for (size_t i = 0; i < values.size(); ++i) line += " " + name + "[" + std::to_string(i) + "] = " + values[i] + ";";
+        if (std::to_string(values.size()) != count)
+            notes.push_back("array " + name + ": " + std::to_string(values.size()) + " values for " + count + " elements");
+        out += line;
+        begin = m[0].second;
+    }
+    out.append(begin, s.cend());
+    s = std::move(out);
+}
+
+// GLSL ES 1.00's abs() takes floats only: abs(<int variable>) becomes
+// vita_iabs(), defined in the shader.
+void convertIntAbs(std::string& s) {
+    static const std::regex kIntDecl(R"(\bint[ \t]+(\w+))");
+    bool used = false;
+    for (std::sregex_iterator it(s.begin(), s.end(), kIntDecl), end; it != end; ++it) {
+        const std::string call = "abs(" + (*it)[1].str() + ")";
+        for (size_t at = s.find(call); at != std::string::npos; at = s.find(call, at + 1)) {
+            if (at > 0 && isIdentChar(s[at - 1])) continue;  // e.g. fabs(
+            s.replace(at, 3, "vita_iabs");
+            used = true;
+        }
+    }
+    if (used) insertAfterPreamble(s, "int vita_iabs(int x) { return x < 0 ? -x : x; }\n");
 }
 
 }  // namespace
@@ -108,12 +231,22 @@ Es100Result toGlslEs100(const std::string& source, ShaderStage stage) {
         size_t at = result.rfind("#version 100\n", 0) == 0 ? std::string("#version 100\n").size() : 0;
         result.insert(at, def);
     }
+    if (stage == ShaderStage::Vertex) r.usesVertexId = convertVertexId(result, r.notes);
     result = replaceCall(result, "texture", "texture2D");
     result = replaceCall(result, "textureLod", "texture2DLod");
     result = replaceCall(result, "textureProj", "texture2DProj");
+    if (stage == ShaderStage::Fragment && containsWord(result, "texture2DLod")) {
+        // Fragment shaders have no texture2DLod in GLSL ES 1.00. The bias form
+        // gives the same level where the UV is constant across the pixel
+        // quad (base level 0, so level = bias), as in gd01's auto-exposure.
+        result = replaceCall(result, "texture2DLod", "texture2D");
+        r.notes.push_back("textureLod in a fragment shader -> texture2D with the level as bias (exact for constant UVs)");
+    }
+    convertArrayConstructors(result, r.notes);
+    convertIntAbs(result);
 
     for (const char* unsupported : {"texelFetch", "textureSize", "uint", "uvec2", "uvec3", "uvec4", "isampler2D",
-                                    "usampler2D", "sampler2DArray", "sampler3D", "gl_VertexID", "gl_InstanceID"})
+                                    "usampler2D", "sampler2DArray", "sampler3D", "gl_InstanceID"})
         if (containsWord(result, unsupported))
             r.notes.push_back(std::string("uses '") + unsupported + "', which GLSL ES 1.00 lacks");
 

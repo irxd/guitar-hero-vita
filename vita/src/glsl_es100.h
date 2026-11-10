@@ -21,7 +21,13 @@ struct Es100Result {
     // to bind with glBindAttribLocation before the program links.
     std::vector<std::pair<int, std::string>> attributes;
     std::vector<std::string> notes;  // things dropped or not convertible
+    // The source used gl_VertexID (full-screen passes drawn without vertex
+    // data): it now reads the float attribute kVertexIdAttribute instead,
+    // which the caller binds and feeds 0, 1, 2, ... at draw time.
+    bool usesVertexId = false;
 };
+
+inline constexpr const char* kVertexIdAttribute = "vita_VertexID";
 
 Es100Result toGlslEs100(const std::string& source, ShaderStage stage);
 
