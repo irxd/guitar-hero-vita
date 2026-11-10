@@ -71,8 +71,15 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
   - `midi_in.cpp` compiles as its stub (no `GD_RTMIDI_API`). `vk_upscaler_stub.cpp` replaces the Vulkan upscaler, as on Android.
   - The icons are GDE's own art (`res/gd01_icon*.png`), embedded with upstream's `embed_file.cmake`.
   - Title ID placeholder: `GDDE00001`.
-- [ ] **vitaGL bring-up (next).** `app.cpp:2511-2633` asks SDL for a GL 3.3 core / GLES 3.0 context (`SDL_GL_SetAttribute`, `SDL_GL_CreateContext`, plus a probe window at :2945). Plan: link-time `-Wl,--wrap=` of `SDL_GL_CreateContext`, `SDL_GL_MakeCurrent`, `SDL_GL_SwapWindow`, `SDL_GL_GetProcAddress`, `SDL_GL_SetSwapInterval`, `SDL_GL_DestroyContext` (and `SDL_CreateWindow` to strip `SDL_WINDOW_OPENGL` if SDL-Vita rejects it). These route to a Vita layer (`vita/src/vita_gl.cpp`) that calls `vglInit`, `vglSwapBuffers` and `vglGetProcAddress`. This needs no upstream patch. **[verify]** that SDL3-Vita doesn't initialise GXM itself when no SDL_Renderer is created.
-- [ ] Logging on device: route `SDL_Log` to a file under `ux0:data/gd01/` (plus the vita-agent-use / psp2-tooling console later).
+- [x] **vitaGL bring-up, built (2026-11-10), untested on hardware.** `vita/src/vita_platform.cpp` plus `-Wl,--wrap=` for 10 SDL symbols. Still no upstream patch.
+  - `SDL_CreateWindow` → 960x544 without OPENGL/RESIZABLE/HIGH_PIXEL_DENSITY. `SDL_GL_CreateContext` → `vglInitExtended(0, 960, 544, 16 MB, no MSAA)` once. `SwapWindow` → `vglSwapBuffers`. `GetProcAddress` → `vglGetProcAddress`. MakeCurrent, DestroyContext and SetSwapInterval are no-ops. ExtensionSupported checks vitaGL's GL_EXTENSIONS.
+  - GL audit: gd01 + gdcore look up 86 GL functions. vitaGL r1488 exports all except `glFenceSync`, `glClientWaitSync`, `glDeleteSync` (stand-ins: glFinish, then "already signalled") and `glQueryCounter`, `glGetQueryObjectui64v` (stand-ins: no timings, 0). Each stand-in logs once.
+  - vitaGL reports "OpenGL ES 2.0 VitaGL", so `gl.cpp` takes its GLES path (shader `#version 330 core` → `#version 300 es`). **[verify]** how vitaGL's GLSL translator handles GLSL ES 3.00 (`in`/`out`, `layout`, `flat`, `texelFetch`).
+  - Paths: `SDL_GetBasePath` and `SDL_GetPrefPath` → `ux0:data/gd01/`. `loadRememberedPath()` finds an `.iso` in the base path, and config, career and enhanced settings go there too.
+  - Log: a constructor before `main` sets `GD01_LOG=ux0:data/gd01/gd01.log`. main.cpp's `openLogFile` flushes every line, so a crash still leaves the log up to the last line.
+  - Clocks: CPU 444, bus 222, GPU 222, xbar 166 MHz. newlib heap is 192 MB **[verify/tune]**.
+  - Useful later: `runShaderTest()` (app.cpp) compiles every program and lists failures. It's only reachable through a command-line flag today; expose it on Vita (e.g. hold a button at boot).
+- [ ] **First hardware run (next):** install the VPK, put the ISO in `ux0:data/gd01/`, launch, and read `gd01.log`.
 - [ ] GL shim: bind gl.cpp's pointers to vitaGL, and rewrite the shaders for the highway / track only
 - [ ] Load the ISO from `ux0:data/gd01/`, load one song chart, draw the highway, play the audio
 - [ ] Run it in Vita3K, then on hardware. Measure fps and RAM.
