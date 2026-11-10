@@ -17,10 +17,18 @@ DUMP="${1:?usage: parse-core.sh <psp2dmp file>}"
 
 if [ ! -f "$TOOL/main.py" ]; then
     echo "=== Installing vita-parse-core"
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-pyelftools >/dev/null
     git clone --depth 1 https://github.com/xyzz/vita-parse-core "$TOOL"
+fi
+# The tool imports elftools.common.py3compat, removed in pyelftools 0.30;
+# Ubuntu's python3-pyelftools is newer, so it gets its own venv with 0.29.
+if [ ! -x "$TOOL/.venv/bin/python" ]; then
+    echo "=== Creating venv with pyelftools 0.29"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-venv >/dev/null
+    python3 -m venv "$TOOL/.venv"
+    "$TOOL/.venv/bin/pip" install -q "pyelftools==0.29"
 fi
 [ -f "$ELF" ] || { echo "No ELF at $ELF: build first (tools/build-vita.sh)" >&2; exit 1; }
 
 # vita-parse-core resolves source lines with arm-vita-eabi-addr2line from PATH.
-python3 "$TOOL/main.py" "$DUMP" "$ELF"
+# The tool is Python 2 code; parse_core_py3.py patches its helpers for Python 3.
+"$TOOL/.venv/bin/python" "$(dirname "$0")/parse_core_py3.py" "$TOOL" "$DUMP" "$ELF"
