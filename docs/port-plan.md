@@ -79,7 +79,11 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
   - Log: a constructor before `main` sets `GD01_LOG=ux0:data/gd01/gd01.log`. main.cpp's `openLogFile` flushes every line, so a crash still leaves the log up to the last line.
   - Clocks: CPU 444, bus 222, GPU 222, xbar 166 MHz. newlib heap is 192 MB **[verify/tune]**.
   - Useful later: `runShaderTest()` (app.cpp) compiles every program and lists failures. It's only reachable through a command-line flag today; expose it on Vita (e.g. hold a button at boot).
-- [ ] **First hardware run (next):** install the VPK, put the ISO in `ux0:data/gd01/`, launch, and read `gd01.log`.
+- [x] **First hardware runs (2026-11-10):**
+  1. vitaGL starts: "SGX543MP4+ / OpenGL ES 2.0 VitaGL", 83 MB VRAM free. The "OpenGL logo" the user saw is vitaGL's own splash thread. The game crashed right after `OpenGL: ...`.
+  2. With shader tracing: both shaders of the first program report compile "ok", then `glLinkProgram` crashes. The core dump (`tools/parse-core.sh`) shows a data abort in SceGxm, with LR in `glLinkProgram+0x7fa` right after `sceGxmProgramGetParameterCount(NULL)`. So vitaGL turned the GLSL ES 3.00 sources into **null GXM programs while reporting success**.
+- [ ] **Fix built, untested on hardware:** `vita/src/glsl_es100.cpp` rewrites every shader to GLSL ES 1.00 before vitaGL sees it. `layout(location)` inputs become `attribute`s, bound with `glBindAttribLocation` before the link (hooks on glCreateShader/glAttachShader). in/out become varying, the fragment output becomes `#define … gl_FragColor`, and `texture*()` becomes the `texture2D*()` forms. The two traced shaders pass `glslangValidator` as ES 1.00 (`tools/check-shaders.sh`). Things ES 1.00 lacks (`flat`, `texelFetch`, `uint`, MRT) are logged per shader. Expect those to need more work.
+- Tooling: `tools/parse-core.sh` decodes `ux0:data/psp2core-*.psp2dmp` (the dump must come from the same build). It runs vita-parse-core (Python 2 code) through `tools/parse_core_py3.py` in a venv with pyelftools 0.29. The user approved running this external tool on 2026-11-10.
 - [ ] GL shim: bind gl.cpp's pointers to vitaGL, and rewrite the shaders for the highway / track only
 - [ ] Load the ISO from `ux0:data/gd01/`, load one song chart, draw the highway, play the audio
 - [ ] Run it in Vita3K, then on hardware. Measure fps and RAM.
