@@ -76,6 +76,60 @@ size_t gPeakHeapUsed = 0;
 unsigned gPaletteCount = 0, gRgbaCount = 0;
 uint64_t gPaletteSavedBytes = 0, gRgbaBytes = 0;
 
+// --- Frame statistics ------------------------------------------------------
+// Every 5 s, gd01.log gets the frame rate and, per frame, the CPU time
+// between swaps (the game's own work), the time spent in vglSwapBuffers
+// (waiting for the GPU / vblank: high when GPU bound), the draw calls and
+// the vertex/index data uploaded. Hooks: glDrawArrays, glDrawElements,
+// glBufferData, glBufferSubData.
+constexpr bool kFrameStats = true;
+constexpr uint64_t kFrameStatsNs = 5'000'000'000ull;
+struct FrameStats {
+    uint64_t frames = 0, cpuNs = 0, swapNs = 0, draws = 0, bufferBytes = 0;
+};
+FrameStats gFrame;
+uint64_t gFrameStatsStart = 0, gLastSwapEnd = 0;
+
+using DrawElementsFn = void (*)(GLenum, GLsizei, GLenum, const void*);
+using BufferDataFn = void (*)(GLenum, GLsizeiptr, const void*, GLenum);
+using BufferSubDataFn = void (*)(GLenum, GLintptr, GLsizeiptr, const void*);
+DrawElementsFn realDrawElements = nullptr;
+BufferDataFn realBufferData = nullptr;
+BufferSubDataFn realBufferSubData = nullptr;
+
+void hookDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
+    ++gFrame.draws;
+    realDrawElements(mode, count, type, indices);
+}
+
+void hookBufferData(GLenum target, GLsizeiptr size, const void* data, GLenum usage) {
+    if (data) gFrame.bufferBytes += uint64_t(size);
+    realBufferData(target, size, data, usage);
+}
+
+void hookBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void* data) {
+    gFrame.bufferBytes += uint64_t(size);
+    realBufferSubData(target, offset, size, data);
+}
+
+void frameStatsSwap(uint64_t swapStart, uint64_t swapEnd) {
+    if (gLastSwapEnd) gFrame.cpuNs += swapStart - gLastSwapEnd;
+    gFrame.swapNs += swapEnd - swapStart;
+    ++gFrame.frames;
+    gLastSwapEnd = swapEnd;
+    if (!gFrameStatsStart) {
+        gFrameStatsStart = swapEnd;
+        return;
+    }
+    if (swapEnd - gFrameStatsStart < kFrameStatsNs) return;
+    const double seconds = double(swapEnd - gFrameStatsStart) / 1e9, f = double(gFrame.frames);
+    SDL_Log("vita: perf: %.1f fps; per frame: cpu %.1f ms, swap wait %.1f ms, %.0f draws, %.0f KB buffer uploads",
+            f / seconds, double(gFrame.cpuNs) / 1e6 / f, double(gFrame.swapNs) / 1e6 / f, double(gFrame.draws) / f,
+            double(gFrame.bufferBytes) / 1024.0 / f);
+    gFrame = {};
+    gFrameStatsStart = swapEnd;
+}
+
 void rawLog(const char* path, const char* fmt, ...) {
     char line[256];
     va_list args;
@@ -296,6 +350,7 @@ void hookUseProgram(GLuint program) {
 }
 
 void hookDrawArrays(GLenum mode, GLint first, GLsizei count) {
+    ++gFrame.draws;
     auto it = gProgramUsesVertexId.find(gCurrentProgram);
     if (it == gProgramUsesVertexId.end() || !it->second) {
         realDrawArrays(mode, first, count);
@@ -471,8 +526,10 @@ bool __wrap_SDL_GL_DestroyContext(SDL_GLContext /*context*/) { return true; }
 bool __wrap_SDL_GL_MakeCurrent(SDL_Window* /*window*/, SDL_GLContext /*context*/) { return true; }
 
 bool __wrap_SDL_GL_SwapWindow(SDL_Window* /*window*/) {
+    const uint64_t swapStart = SDL_GetTicksNS();
     vglSwapBuffers(GL_FALSE);
     const uint64_t now = SDL_GetTicksNS();
+    if (kFrameStats) frameStatsSwap(swapStart, now);
     if (now >= gNextMemoryReport) {
         reportMemory(gNextMemoryReport == 0 ? "first frame" : "periodic");
         gNextMemoryReport = now + kMemoryReportNs;
@@ -528,12 +585,25 @@ SDL_FunctionPointer __wrap_SDL_GL_GetProcAddress(const char* name) {
         SDL_Log("vita: GL %s is missing from vitaGL", name);
         return fn;
     }
-    if (kPaletteTextures) {
-        struct Hook {
-            const char* name;
-            void** real;
-            SDL_FunctionPointer hook;
+    struct Hook {
+        const char* name;
+        void** real;
+        SDL_FunctionPointer hook;
+    };
+    if (kFrameStats) {
+        const Hook hooks[] = {
+            {"glDrawElements", reinterpret_cast<void**>(&realDrawElements), reinterpret_cast<SDL_FunctionPointer>(hookDrawElements)},
+            {"glBufferData", reinterpret_cast<void**>(&realBufferData), reinterpret_cast<SDL_FunctionPointer>(hookBufferData)},
+            {"glBufferSubData", reinterpret_cast<void**>(&realBufferSubData), reinterpret_cast<SDL_FunctionPointer>(hookBufferSubData)},
         };
+        for (const Hook& h : hooks) {
+            if (std::strcmp(name, h.name) == 0) {
+                *h.real = reinterpret_cast<void*>(fn);
+                return h.hook;
+            }
+        }
+    }
+    if (kPaletteTextures) {
         const Hook hooks[] = {
             {"glBindTexture", reinterpret_cast<void**>(&realBindTexture), reinterpret_cast<SDL_FunctionPointer>(hookBindTexture)},
             {"glActiveTexture", reinterpret_cast<void**>(&realActiveTexture), reinterpret_cast<SDL_FunctionPointer>(hookActiveTexture)},
