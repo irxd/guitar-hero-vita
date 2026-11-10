@@ -1,0 +1,398 @@
+diff --git a/gd-game-01/engine/src/scene/character.cpp b/gd-game-01/engine/src/scene/character.cpp
+index 7c95ad9..529b39f 100644
+--- a/gd-game-01/engine/src/scene/character.cpp
++++ b/gd-game-01/engine/src/scene/character.cpp
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-11: PS Vita: index-based skeleton for blending, world update and servos (no per-frame string maps).
+ #include "scene/character.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -8,6 +9,10 @@
+ #include <cctype>
+ #include <cmath>
+ #include <functional>
++#if defined(__vita__)
++#include <cstring>
++#include <unordered_map>
++#endif
+ 
+ #include "data/dta.h"
+ #include "data/game_data.h"
+@@ -953,11 +958,250 @@ float Character::flagWeight(uint32_t flag) const {
+     return acc;
+ }
+ 
++#if defined(__vita__)
++// ---------------------------------------------------------------- PS Vita
++// The skeleton as arrays. Upstream keys every bone by name in std::maps that
++// are searched (and, for the blend accumulator and updateWorld's "done" set,
++// built with a string allocation per bone) every frame; on the Vita's A9 that
++// made a character's poll 2-9 ms, and a song frame polls a dozen characters
++// (guitarist 9 ms, band 7 ms, crowd 17-21 ms; hardware 2026-11-10).
++//
++// Same results: the blend and world update do the same arithmetic in the same
++// order, only the bookkeeping differs. The first kChecks poses of each
++// character run upstream's code as well and compare every bone bit for bit;
++// a difference logs and switches that character back to upstream's code.
++struct Character::VitaSkeleton {
++    static constexpr int kChecks = 8;
++    bool ok = false;
++    bool reference = false;  // running upstream's code for a check
++    int checks = kChecks;
++    // objects_ (owners), in map order.
++    std::vector<Transformable*> xf;
++    std::vector<int> parent;  // index into xf, or -1: under placement_
++    std::vector<int> order;   // parents before children
++    int fretSelf = -1;        // detached bone_fret: world = local
++    Transformable* fret = nullptr;
++    std::vector<std::pair<Transformable*, const Transformable*>> guitarCopies;
++    // buffer_ entries (std::map nodes: stable addresses) and their objects.
++    std::vector<Xfm*> slotXfm;
++    std::vector<Transformable*> slotTarget;
++    std::vector<char> slotFacing;
++    std::map<std::string, int> slotOfName;
++    struct BoneRef {
++        std::string name;
++        int slot;
++    };
++    std::unordered_map<const std::string*, BoneRef> boneSlot;  // a clip's bone name -> slot (-1: not posed)
++    struct Acc {
++        std::array<float, 3> pos{};
++        Quat q{};
++        float wPos = 0, wRot = 0;
++    };
++    std::vector<Acc> acc;
++    std::vector<char> inAcc;
++    std::vector<int> touched;
++    // servos(): foreArm, foreTwist1, foreTwist2, hand, upperArm, upperTwist1, upperTwist2 (L, R).
++    Transformable* servo[2][7] = {};
++
++    int slotFor(const std::string* bone) {
++        auto it = boneSlot.find(bone);
++        if (it != boneSlot.end() && it->second.name == *bone) return it->second.slot;
++        auto s = slotOfName.find(*bone);
++        const int slot = s == slotOfName.end() ? -1 : s->second;
++        boneSlot[bone] = {*bone, slot};
++        return slot;
++    }
++    std::vector<Xfm> slotValues() const {
++        std::vector<Xfm> v;
++        v.reserve(slotXfm.size());
++        for (const Xfm* x : slotXfm) v.push_back(*x);
++        return v;
++    }
++    void setSlotValues(const std::vector<Xfm>& v) {
++        for (size_t i = 0; i < slotXfm.size(); ++i) *slotXfm[i] = v[i];
++    }
++    std::vector<Xfm> worlds() const {
++        std::vector<Xfm> v;
++        v.reserve(xf.size() + guitarCopies.size());
++        for (const Transformable* t : xf) v.push_back(t->world);
++        for (const auto& c : guitarCopies) v.push_back(c.first->world);
++        return v;
++    }
++    static bool same(const std::vector<Xfm>& a, const std::vector<Xfm>& b) {
++        return a.size() == b.size() && std::memcmp(a.data(), b.data(), a.size() * sizeof(Xfm)) == 0;
++    }
++};
++
++Character::VitaSkeleton* Character::vitaSkeleton() {
++    if (!vitaSkel_) {
++        if (buffer_.empty()) return nullptr;
++        vitaSkel_ = std::make_unique<VitaSkeleton>();
++        buildVitaSkeleton(*vitaSkel_);
++        if (!vitaSkel_->ok) SDL_Log("vita: character %s: no index skeleton (upstream path)", model_.c_str());
++    }
++    return vitaSkel_->ok ? vitaSkel_.get() : nullptr;
++}
++
++void Character::buildVitaSkeleton(VitaSkeleton& sk) {
++    std::map<std::string, int> index;
++    for (auto& [name, o] : objects_) {
++        if (!o || !o->transformable()) return;
++        index[name] = int(sk.xf.size());
++        sk.xf.push_back(o->transformable());
++    }
++    const int n = int(sk.xf.size());
++    sk.parent.assign(size_t(n), -1);
++    for (auto& [name, o] : objects_) {
++        const int i = index[name];
++        if (fretDetached_ && name == "bone_fret.mesh") {
++            sk.fretSelf = i;
++            continue;
++        }
++        if (auto p = parent_.find(name); p != parent_.end())
++            if (auto q = index.find(p->second); q != index.end()) sk.parent[size_t(i)] = q->second;
++    }
++    // Parents before children; a cycle (or a chain deeper than upstream's 64)
++    // keeps upstream's code.
++    std::vector<char> state(size_t(n), 0);
++    std::function<bool(int, int)> visit = [&](int i, int depth) {
++        if (state[size_t(i)] == 2) return true;
++        if (state[size_t(i)] == 1 || depth >= 64) return false;
++        state[size_t(i)] = 1;
++        if (sk.parent[size_t(i)] >= 0 && !visit(sk.parent[size_t(i)], depth + 1)) return false;
++        state[size_t(i)] = 2;
++        sk.order.push_back(i);
++        return true;
++    };
++    for (int i = 0; i < n; ++i)
++        if (!visit(i, 0)) return;
++    if (guitar_)
++        for (SceneObject& o : guitar_->objects()) {
++            Transformable* t = o.transformable();
++            if (!t) continue;
++            auto it = objects_.find(o.name);
++            if (it == objects_.end()) return;
++            if (it->second != &o) sk.guitarCopies.push_back({t, it->second->transformable()});
++        }
++    for (auto& [name, x] : buffer_) {
++        auto it = objects_.find(name);
++        if (it == objects_.end()) return;
++        sk.slotOfName[name] = int(sk.slotXfm.size());
++        sk.slotXfm.push_back(&x);
++        sk.slotTarget.push_back(it->second->transformable());
++        sk.slotFacing.push_back(name.rfind("bone_facing", 0) == 0);
++    }
++    sk.acc.resize(sk.slotXfm.size());
++    sk.inAcc.assign(sk.slotXfm.size(), 0);
++    if (auto it = objects_.find("bone_fret.mesh"); it != objects_.end()) sk.fret = it->second->transformable();
++    static const char* const kServoBones[7] = {"foreArm.mesh", "foreTwist1.mesh", "foreTwist2.mesh", "hand.mesh",
++                                               "upperArm.mesh", "upperTwist1.mesh", "upperTwist2.mesh"};
++    for (int side = 0; side < 2; ++side)
++        for (int k = 0; k < 7; ++k) {
++            auto it = objects_.find(std::string("bone_") + (side ? "R" : "L") + "-" + kServoBones[k]);
++            sk.servo[side][k] = it == objects_.end() ? nullptr : it->second->transformable();
++        }
++    sk.ok = true;
++}
++
++// blendChain's arithmetic, per slot instead of per name.
++void Character::vitaBlendChain(VitaSkeleton& sk, const std::vector<Clip>& clips, const std::vector<Driver>& chain,
++                               float weight) {
++    for (int t : sk.touched) sk.acc[size_t(t)] = {}, sk.inAcc[size_t(t)] = 0;
++    sk.touched.clear();
++    float remaining = weight;
++    for (size_t i = chain.size(); i-- > 0 && remaining > 1e-6f;) {
++        const Driver& d = chain[i];
++        float w = remaining * smooth(d.blend);
++        remaining -= w;
++        if (w <= 0) continue;
++        clips[size_t(d.clip)].clip->sample(d.frame, scratch_);
++        for (const AnimClip::Value& v : scratch_) {
++            const int slot = sk.slotFor(v.bone);
++            if (slot < 0) continue;
++            if (rootMotion_ && sk.slotFacing[size_t(slot)]) continue;  // use_delta: the dummy bone
++            if (!sk.inAcc[size_t(slot)]) sk.inAcc[size_t(slot)] = 1, sk.touched.push_back(slot);
++            VitaSkeleton::Acc& a = sk.acc[size_t(slot)];
++            if (v.kind == AnimClip::Kind::Pos) {
++                for (int k = 0; k < 3; ++k) a.pos[size_t(k)] += w * v.v[size_t(k)];
++                a.wPos += w;
++                continue;
++            }
++            std::array<float, 9> m;
++            Quat q;
++            if (v.kind == AnimClip::Kind::Quat) q = {v.v[0], v.v[1], v.v[2], v.v[3]};
++            else {
++                if (v.kind == AnimClip::Kind::RotX) rotXToRot(v.v[0], m);
++                else if (v.kind == AnimClip::Kind::RotY) rotYToRot(v.v[0], m);
++                else rotZToRot(v.v[0], m);
++                q = rotToQuat(m);
++            }
++            Quat ref = a.wRot == 0 ? rotToQuat(sk.slotXfm[size_t(slot)]->rot) : a.q;
++            float dot = q[0] * ref[0] + q[1] * ref[1] + q[2] * ref[2] + q[3] * ref[3];
++            float sgn = dot < 0 ? -1.0f : 1.0f;
++            for (int k = 0; k < 4; ++k) a.q[size_t(k)] += w * sgn * q[size_t(k)];
++            a.wRot += w;
++        }
++    }
++    for (int t : sk.touched) {
++        const VitaSkeleton::Acc& a = sk.acc[size_t(t)];
++        Xfm& x = *sk.slotXfm[size_t(t)];
++        if (a.wPos > 0)
++            for (int k = 0; k < 3; ++k) x.pos[size_t(k)] = a.pos[size_t(k)] + (1 - a.wPos) * x.pos[size_t(k)];
++        if (a.wRot > 0) {
++            Quat q = a.q;
++            if (a.wRot < 1) {
++                Quat bq = rotToQuat(x.rot);
++                float dot = q[0] * bq[0] + q[1] * bq[1] + q[2] * bq[2] + q[3] * bq[3];
++                float sgn = dot < 0 ? -1.0f : 1.0f;
++                for (int k = 0; k < 4; ++k) q[size_t(k)] += (1 - a.wRot) * sgn * bq[size_t(k)];
++            }
++            float len = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
++            if (len > 0) {
++                for (float& c : q) c /= len;
++                quatToRot(q, x.rot);
++            }
++        }
++    }
++}
++
++// updateWorld's composition, in parents-first order.
++void Character::vitaUpdateWorld(VitaSkeleton& sk) {
++    for (int i : sk.order) {
++        Transformable& t = *sk.xf[size_t(i)];
++        const int p = sk.parent[size_t(i)];
++        if (i == sk.fretSelf) t.world = t.local;
++        else t.world = compose(t.local, p >= 0 ? sk.xf[size_t(p)]->world : placement_);
++    }
++    for (const auto& [copy, owner] : sk.guitarCopies) copy->world = owner->world;
++}
++#endif
++
+ // The servo buffer (FUN_001896f8): per driver, the bones its clips drive
+ // become (1 - W) * buffer + sum of S(blend)-weighted samples, W = the chain
+ // weight times the driver's weight scale; quats hemisphere-aligned, summed
+ // and normalised. Bones no clip drives keep their buffer value.
+ void Character::blendChain(const std::vector<Clip>& clips, const std::vector<Driver>& chain, float weight) {
++#if defined(__vita__)
++    if (VitaSkeleton* sk = vitaSkeleton(); sk && !sk->reference) {
++        if (sk->checks > 0) {  // upstream's result first, then the same input through the index path
++            const std::vector<Xfm> before = sk->slotValues();
++            sk->reference = true;
++            blendChain(clips, chain, weight);
++            sk->reference = false;
++            const std::vector<Xfm> expected = sk->slotValues();
++            sk->setSlotValues(before);
++            vitaBlendChain(*sk, clips, chain, weight);
++            if (!VitaSkeleton::same(sk->slotValues(), expected)) {
++                SDL_Log("vita: character %s: index skeleton blend differs from upstream (upstream path)", model_.c_str());
++                sk->setSlotValues(expected);
++                sk->ok = false;
++            }
++            return;
++        }
++        vitaBlendChain(*sk, clips, chain, weight);
++        return;
++    }
++#endif
+     struct Acc {
+         std::array<float, 3> pos{};
+         Quat q{};
+@@ -1029,9 +1273,17 @@ void Character::pose() {
+         blendChain(handClips_, hands_[kLeftHand], wL_);
+         blendChain(handClips_, hands_[kRightHand], wR_);
+     }
+-    for (auto& [name, x] : buffer_) objects_[name]->transformable()->local = x;
+-    if (hasFretBone_)
+-        if (auto it = objects_.find("bone_fret.mesh"); it != objects_.end()) it->second->transformable()->local = fretBone_;
++#if defined(__vita__)
++    if (VitaSkeleton* sk = vitaSkeleton()) {
++        for (size_t i = 0; i < sk->slotXfm.size(); ++i) sk->slotTarget[i]->local = *sk->slotXfm[i];
++        if (hasFretBone_ && sk->fret) sk->fret->local = fretBone_;
++    } else
++#endif
++    {
++        for (auto& [name, x] : buffer_) objects_[name]->transformable()->local = x;
++        if (hasFretBone_)
++            if (auto it = objects_.find("bone_fret.mesh"); it != objects_.end()) it->second->transformable()->local = fretBone_;
++    }
+     updateWorld();
+     if (hasHands()) {
+         ik("R", "bone_strum_hand.mesh", wR_);
+@@ -1044,6 +1296,11 @@ void Character::pose() {
+         wR_ = flagWeight(0x800000);  // kGuitarRightIK
+     }
+     pollEyes();
++#if defined(__vita__)
++    if (VitaSkeleton* sk = vitaSkeleton(); sk && sk->checks > 0 && --sk->checks == 0)
++        SDL_Log("vita: character %s: index skeleton matches upstream (%d poses, %d bones)", model_.c_str(),
++                VitaSkeleton::kChecks, int(sk->xf.size()));
++#endif
+ }
+ 
+ void Character::updateSubtree(const std::string& name) {
+@@ -1171,6 +1428,37 @@ float wrapPi(float a) {
+ // charbase.dta / bandbase.dta servos, priority 1000 (after the clips):
+ // AnimServoForeTwist (FUN_00183a20) and AnimServoUpperTwist (FUN_001878a8).
+ void Character::servos() {
++#if defined(__vita__)
++    if (VitaSkeleton* sk = vitaSkeleton()) {  // the same bones, looked up once
++        for (int si = 0; si < 2; ++si) {
++            const bool left = si == 0;
++            Transformable* const* b = sk->servo[si];
++            if (servoLevel_ >= 2) {
++                Transformable *fore = b[0], *t1 = b[1], *t2 = b[2], *hand = b[3];
++                if (fore && t1 && t2 && hand) {
++                    float offset = (left ? 90.0f : -90.0f) * 3.14159265f / 180.0f;
++                    float t = wrapPi(twistAboutX(hand->local.rot) + offset) / 3;
++                    std::array<float, 9> rx;
++                    rotXToRot(t, rx);
++                    t2->local.rot = rx;
++                    t1->local.rot = mul3(rx, fore->local.rot);
++                    t2->local.pos[0] = hand->local.pos[0] * 0.5f;
++                }
++            }
++            if (servoLevel_ >= 1) {
++                Transformable *upper = b[4], *t1 = b[5], *t2 = b[6];
++                if (upper && t1 && t2) {
++                    float t = twistAboutX(upper->local.rot);
++                    std::array<float, 9> half;
++                    rotXToRot(-t / 2, half);
++                    t2->local.rot = mul3(half, upper->local.rot);
++                    t1->local.rot = mul3(half, t2->local.rot);
++                }
++            }
++        }
++        return;
++    }
++#endif
+     auto local = [&](const std::string& n) -> Transformable* {
+         auto it = objects_.find(n);
+         return it == objects_.end() ? nullptr : it->second->transformable();
+@@ -1205,6 +1493,26 @@ void Character::servos() {
+ }
+ 
+ void Character::updateWorld() {
++#if defined(__vita__)
++    if (VitaSkeleton* sk = vitaSkeleton(); sk && !sk->reference) {
++        if (sk->checks > 0) {
++            sk->reference = true;
++            updateWorld();
++            sk->reference = false;
++            const std::vector<Xfm> expected = sk->worlds();
++            vitaUpdateWorld(*sk);
++            if (!VitaSkeleton::same(sk->worlds(), expected)) {
++                SDL_Log("vita: character %s: index skeleton world update differs from upstream (upstream path)",
++                        model_.c_str());
++                sk->ok = false;
++                updateWorld();
++            }
++            return;
++        }
++        vitaUpdateWorld(*sk);
++        return;
++    }
++#endif
+     std::map<std::string, char> done;
+     std::function<const Xfm&(const std::string&, int)> world = [&](const std::string& name, int depth) -> const Xfm& {
+         SceneObject* o = objects_[name];
+diff --git a/gd-game-01/engine/src/scene/character.h b/gd-game-01/engine/src/scene/character.h
+index a271db6..0ed4dcd 100644
+--- a/gd-game-01/engine/src/scene/character.h
++++ b/gd-game-01/engine/src/scene/character.h
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-11: PS Vita: index-based skeleton for blending, world update and servos (no per-frame string maps).
+ #pragma once
+ 
+ #include <array>
+@@ -312,5 +313,15 @@ private:
+     std::vector<AnimClip::Value> scratch_;
+     bool rootMotion_ = false;
+     void applyRootMotion();
++#if defined(__vita__)
++    // PS Vita: the skeleton as arrays (character.cpp), built at the first
++    // pose; null until then or when it could not be built (upstream path).
++    struct VitaSkeleton;
++    std::unique_ptr<VitaSkeleton> vitaSkel_;
++    VitaSkeleton* vitaSkeleton();
++    void buildVitaSkeleton(VitaSkeleton& sk);
++    void vitaBlendChain(VitaSkeleton& sk, const std::vector<Clip>& clips, const std::vector<Driver>& chain, float weight);
++    void vitaUpdateWorld(VitaSkeleton& sk);
++#endif
+     bool facingAt(const AnimClip& c, float frame, std::array<float, 3>& pos, float& rotz) const;
+ };

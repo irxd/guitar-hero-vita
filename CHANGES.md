@@ -28,6 +28,7 @@ platforms build exactly as upstream.
 | 2026-11-10 | `0008-vita-frame-phases.patch` | `gd-game-01/engine/src/app.cpp` | PS Vita: frame phase marks (main loop, game logic, venue update and draw, track, present) for the timing report in gd01.log (`vita/src/vita_profile.h`); no effect on other platforms |
 | 2026-11-10 | `0009-vita-venue-phases.patch` | `gd-game-01/engine/src/render/venue_renderer.cpp` | PS Vita: phase marks inside the venue update (script, guitarist, band, lights, crowd, camera) |
 | 2026-11-10 | `0010-vita-no-track-fade-grab.patch` | `gd-game-01/engine/src/render/track_renderer.cpp` | PS Vita: no `track_fade` screen grab before the highway (vitaGL's copy waits for the GPU to finish the venue: 21-23 ms of every song frame); the highway's far end is not faded into the venue |
+| 2026-11-11 | `0011-vita-index-skeleton.patch` | `gd-game-01/engine/src/scene/character.h`, `gd-game-01/engine/src/scene/character.cpp` | PS Vita: characters blend, pose, update world transforms and run their twist servos through bone arrays built once, instead of string-keyed maps searched and rebuilt every frame (2-9 ms per character on the A9); same arithmetic in the same order, the first 8 poses of each character are checked bit for bit against upstream's code, with a fallback to it |
 
 ## New files
 
