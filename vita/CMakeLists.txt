@@ -75,7 +75,7 @@ set(GD01_SOURCES
 )
 list(TRANSFORM GD01_SOURCES PREPEND "${GD01_SRC}/")
 
-add_executable(gd01 ${GD01_SOURCES} src/vita_platform.cpp src/glsl_es100.cpp src/texture_palette.cpp src/movie_worker.cpp)
+add_executable(gd01 ${GD01_SOURCES} src/vita_platform.cpp src/glsl_es100.cpp src/texture_palette.cpp src/movie_worker.cpp src/mpeg2_neon.cpp)
 # SDL calls the Vita layer (src/vita_platform.cpp) takes over, so the
 # upstream sources stay unmodified.
 foreach(sym SDL_CreateWindow SDL_GL_CreateContext SDL_GL_DestroyContext SDL_GL_MakeCurrent
@@ -118,6 +118,11 @@ set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
 foreach(sym malloc calloc realloc memalign)
   target_link_options(gd01 PRIVATE "-Wl,--wrap=${sym}")
 endforeach()
+# vita-elf-create appends ~4.5 KB of SCE tables after the code segment; when
+# the code ends just under a 64 KiB boundary the data segment overlaps them
+# ("Cannot allocate ... segment 1 overlaps"). The SDK's linker script reserves
+# __sce_headroom bytes before the data segment.
+target_link_options(gd01 PRIVATE "-Wl,--defsym=__sce_headroom=0x2000")
 
 vita_create_self(eboot.bin gd01 UNSAFE)
 vita_create_vpk(gd01.vpk ${VITA_TITLEID} eboot.bin
