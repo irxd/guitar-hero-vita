@@ -75,7 +75,7 @@ set(GD01_SOURCES
 )
 list(TRANSFORM GD01_SOURCES PREPEND "${GD01_SRC}/")
 
-add_executable(gd01 ${GD01_SOURCES} src/vita_platform.cpp)
+add_executable(gd01 ${GD01_SOURCES} src/vita_platform.cpp src/glsl_es100.cpp)
 # SDL calls the Vita layer (src/vita_platform.cpp) takes over, so the
 # upstream sources stay unmodified.
 foreach(sym SDL_CreateWindow SDL_GL_CreateContext SDL_GL_DestroyContext SDL_GL_MakeCurrent
