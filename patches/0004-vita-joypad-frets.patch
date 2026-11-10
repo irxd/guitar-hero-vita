@@ -1,11 +1,11 @@
 diff --git a/gd-game-01/engine/src/input/input.cpp b/gd-game-01/engine/src/input/input.cpp
-index 2c5a30a..954a0fb 100644
+index 2c5a30a..394d8d2 100644
 --- a/gd-game-01/engine/src/input/input.cpp
 +++ b/gd-game-01/engine/src/input/input.cpp
 @@ -1,5 +1,6 @@
  // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
  // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
-+// Modified by irxd on 2026-11-10: PS Vita joypad fret layout (defaults).
++// Modified by irxd on 2026-11-10: PS Vita joypad fret layout (defaults); fret helper buttons in a song.
  #include "input/input.h"
  
  #include <algorithm>
@@ -30,3 +30,28 @@ index 2c5a30a..954a0fb 100644
          padCommon({btn(SDL_GAMEPAD_BUTTON_BACK)});
          set(C::Green, {axis(Kind::AxisPos, SDL_GAMEPAD_AXIS_LEFT_TRIGGER)});
          set(C::Red, {btn(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER)});
+@@ -759,9 +774,24 @@ void Input::update(Pad& p, uint64_t ts, std::vector<InputEvent>& out) {
+     const std::array<bool, 4> help = {p.buttons[SDL_GAMEPAD_BUTTON_DPAD_LEFT], p.buttons[SDL_GAMEPAD_BUTTON_DPAD_RIGHT],
+                                       joypad && p.buttons[SDL_GAMEPAD_BUTTON_SOUTH], joypad && p.buttons[SDL_GAMEPAD_BUTTON_EAST]};
+     static constexpr Action kHelp[4] = {Action::Left, Action::Right, Action::Confirm, Action::Back};
++#if defined(__vita__)
++    // PS Vita: Circle is the blue fret, and its Back would pause the song at
++    // every blue note; in a song a helper button bound to a fret is only that fret.
++    static constexpr SDL_GamepadButton kHelpButton[4] = {SDL_GAMEPAD_BUTTON_DPAD_LEFT, SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
++                                                         SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST};
++    auto isFret = [&](SDL_GamepadButton button) {
++        for (C f : {C::Green, C::Red, C::Yellow, C::Blue, C::Orange})
++            for (const Source& s : b[size_t(f)])
++                if (s == Source{Kind::Button, int(button)}) return true;
++        return false;
++    };
++#endif
+     for (size_t k = 0; k < 4; ++k)
+         if (help[k] != p.helper[k]) {
+             p.helper[k] = help[k];
++#if defined(__vita__)
++            if (inGame() && isFret(kHelpButton[k])) continue;
++#endif
+             if (p.slot >= 0 || !inGame() || kHelp[k] == Action::Back) emit(out, kHelp[k], help[k], ts, ControllerMode::Joypad, std::max(p.slot, 0));
+         }
+ }
