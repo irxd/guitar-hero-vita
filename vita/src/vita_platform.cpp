@@ -100,6 +100,11 @@ struct PhaseStats {
 };
 constexpr int kMaxPhases = 32;
 PhaseStats gPhases[kMaxPhases];
+// Phase timing costs time itself: a clock read is 1.3 us on the Vita
+// (hardware, 2026-11-11), and level 2 reads it 4 times per mesh draw (3-4 ms
+// a song frame). GD01_VITA_PHASES (args.txt): 0 off (default: the fps line
+// only), 1 frame phases, 2 also nested phases and per-draw vitaGL time.
+int gPhaseLevel = 0;
 int gPhaseCount = 0, gPhase = -1;
 uint64_t gPhaseStart = 0;
 const char* const kLoopPhase = "loop";
@@ -120,9 +125,9 @@ void switchPhase(const char* name, uint64_t now) {
 
 // A draw call: counted (and its vitaGL time added) to the current phase.
 struct DrawTimer {
-    uint64_t start = SDL_GetTicksNS();
+    uint64_t start = gPhaseLevel >= 2 ? SDL_GetTicksNS() : 0;
     ~DrawTimer() {
-        if (gPhase < 0) return;
+        if (gPhaseLevel < 2 || gPhase < 0) return;
         gPhases[gPhase].submitNs += SDL_GetTicksNS() - start;
         ++gPhases[gPhase].draws;
     }
@@ -222,7 +227,7 @@ void frameStatsSwap(uint64_t swapStart, uint64_t swapEnd) {
     SDL_Log("vita: perf: %.1f fps; per frame: cpu %.1f ms, swap wait %.1f ms, %.0f draws, %.0f KB buffer uploads",
             f / seconds, double(gFrame.cpuNs) / 1e6 / f, double(gFrame.swapNs) / 1e6 / f, double(gFrame.draws) / f,
             double(gFrame.bufferBytes) / 1024.0 / f);
-    reportPhases(f);
+    if (gPhaseLevel > 0) reportPhases(f);
     gFrame = {};
     gFrameStatsStart = swapEnd;
 }
@@ -597,6 +602,17 @@ void initVitaGl() {
     };
     const int displayScenes = envInt("GD01_VITA_DISPLAY_SCENES", 0), fboScenes = envInt("GD01_VITA_FBO_SCENES", 0);
     const int paramMb = envInt("GD01_VITA_PARAM_MB", 0);
+    gPhaseLevel = envInt("GD01_VITA_PHASES", 0);
+    {
+        // What one clock read costs (the phase timer's overhead per call).
+        constexpr int kReads = 2000;
+        const uint64_t t0 = SDL_GetTicksNS();
+        uint64_t sink = 0;
+        for (int i = 0; i < kReads; ++i) sink += SDL_GetTicksNS();
+        const uint64_t t1 = SDL_GetTicksNS();
+        SDL_Log("vita: frame phases level %d (GD01_VITA_PHASES); SDL_GetTicksNS costs %.2f us a call%s", gPhaseLevel,
+                double(t1 - t0) / 1e3 / kReads, sink ? "" : ".");
+    }
     if (displayScenes > 0 || fboScenes > 0)
         vglSetupRenderTargetScenesNum(uint8_t(displayScenes > 0 ? displayScenes : 1), uint8_t(fboScenes > 0 ? fboScenes : 1));
     if (paramMb > 0) vglSetParamBufferSize(uint32_t(paramMb) << 20);
@@ -630,7 +646,7 @@ __attribute__((constructor)) void vitaEarlyInit() {
 namespace vita {
 
 void profilePhase(const char* name) {
-    if (kFrameStats) switchPhase(name, SDL_GetTicksNS());
+    if (kFrameStats && gPhaseLevel >= 1) switchPhase(name, SDL_GetTicksNS());
 }
 
 namespace {
@@ -639,14 +655,14 @@ int gPhaseDepth = 0;
 }  // namespace
 
 void profilePush(const char* name) {
-    if (!kFrameStats) return;
+    if (!kFrameStats || gPhaseLevel < 2) return;
     if (gPhaseDepth < 8) gPhaseStack[gPhaseDepth] = gPhase >= 0 ? gPhases[gPhase].name : nullptr;
     ++gPhaseDepth;
     switchPhase(name, SDL_GetTicksNS());
 }
 
 void profilePop() {
-    if (!kFrameStats || gPhaseDepth == 0) return;
+    if (!kFrameStats || gPhaseLevel < 2 || gPhaseDepth == 0) return;
     --gPhaseDepth;
     switchPhase(gPhaseDepth < 8 ? gPhaseStack[gPhaseDepth] : nullptr, SDL_GetTicksNS());
 }

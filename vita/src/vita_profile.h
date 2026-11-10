@@ -9,6 +9,10 @@
 // (the main loop's event handling until the next mark). Every 5 s the log
 // gets each phase's milliseconds per frame, its draw calls, and the time
 // spent inside vitaGL's draw calls during it ("submit"). Main thread only.
+//
+// Off unless asked for: GD01_VITA_PHASES=1 (args.txt) times profilePhase
+// marks, =2 also profilePush/Pop and every draw call. Each clock read costs
+// 1.3 us on the Vita, so level 2 slows mesh-heavy frames by 3-4 ms.
 #pragma once
 
 namespace vita {

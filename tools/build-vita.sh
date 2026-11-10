@@ -24,9 +24,15 @@ for h in core_renderer_spirv.h core_post_fx_hdr_spirv.h; do
     cp -u "$src" "$OUT/gen/"
 done
 
+# Our vitaGL build (tools/build-vitagl.sh) when it exists; VITAGL_DIR= (empty)
+# links the SDK's.
+VITAGL_DIR="${VITAGL_DIR-/root/build/vitagl}"
+[ -f "$VITAGL_DIR/libvitaGL.a" ] || VITAGL_DIR=""
+
 cmake -S "$REPO/vita" -B "$OUT" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" \
-    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_BUILD_TYPE=Release \
+    -DGD01_VITAGL_DIR="$VITAGL_DIR"
 cmake --build "$OUT" -- "$@"
 
 if [ -f "$OUT/gd01.vpk" ]; then

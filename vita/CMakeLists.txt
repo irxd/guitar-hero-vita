@@ -86,10 +86,20 @@ endforeach()
 # vita/src is on the path for the patches' Vita headers (e.g. movie_worker.h in patch 0006).
 target_include_directories(gd01 PRIVATE ${GD01_SRC} ${GD01_GEN} ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(gd01 PRIVATE GD01_DLSS=0 GD01_VITA=1 GD01_VERSION="${PROJECT_VERSION}")
+# Our own vitaGL build (tools/build-vitagl.sh: extra speed options) when
+# given, else the SDK's.
+set(GD01_VITAGL_DIR "" CACHE PATH "Folder with a libvitaGL.a + vitaGL.h from tools/build-vitagl.sh")
+if(GD01_VITAGL_DIR)
+  set(GD01_VITAGL "${GD01_VITAGL_DIR}/libvitaGL.a")
+  target_include_directories(gd01 BEFORE PRIVATE ${GD01_VITAGL_DIR})
+  message(STATUS "vitaGL: ${GD01_VITAGL}")
+else()
+  set(GD01_VITAGL vitaGL)
+endif()
 target_link_libraries(gd01 PRIVATE
   gdcore_render gdcore_audio
   SDL3::SDL3
-  vitaGL vitashark SceShaccCgExt mathneon taihen_stub kubridge_stub
+  ${GD01_VITAGL} vitashark SceShaccCgExt mathneon taihen_stub kubridge_stub
   SceShaccCg_stub SceGxm_stub SceDisplay_stub SceSysmodule_stub SceKernelDmacMgr_stub
   SceAppMgr_stub SceAppUtil_stub SceCommonDialog_stub SceIme_stub
   SceCtrl_stub SceTouch_stub SceMotion_stub SceHid_stub ScePower_stub
