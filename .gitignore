@@ -1,0 +1,32 @@
+# Upstream engine clone (its own git repo; pinned commit is recorded in docs/port-plan.md)
+/upstream/
+
+# Game data: NEVER commit (copyrighted, user-supplied)
+/original_isos/
+/extracted/
+*.iso
+*.ISO
+*.ark
+*.hdr
+*.vgs
+*.pss
+*.bik
+*.milo
+
+# Reverse-engineering output: NEVER commit
+/ghidra/
+/decomp/
+
+# Build output
+/build/
+/build-*/
+*.vpk
+*.velf
+*.elf
+eboot.bin
+param.sfo
+
+# Scratch / logs
+/agents/scratch/
+*.log
+.vscode/
