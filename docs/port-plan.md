@@ -53,8 +53,11 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
 
 ### Phase 0: environment (blocked on the user)
 - [x] Install WSL2 + Ubuntu on this PC. 2026-11-10: the user turned on SVM in the BIOS, and Ubuntu was installed on WSL2 (`wsl --install -d Ubuntu --no-launch`, no default user; tooling runs as root via `wsl -d Ubuntu -u root`).
-- [ ] Base packages in Ubuntu (build-essential, git, cmake, ninja, python3, curl): in progress
-- [ ] Install VitaSDK (`vdpm`), CMake ≥ 3.24, SDL3 for Vita, vitaGL (+ vitaShaRK/libmathneon as vitaGL requires)
+- [x] Base packages in Ubuntu 26.04.1: GCC 15.2, CMake 4.2.3, ninja, git, python3
+- [x] VitaSDK via `tools/setup-vitasdk.sh`: release channel **2026.08** (sequence 2026102473, toolchain sdk-snapshot-20260825), `arm-vita-eabi-gcc 15.2.0` (so C++20 is fine). Packages: sdl3 3.4.16, vitaGL r1488 (g2bdbe89), vitaShaRK 1.7, libmathneon, zlib, taihen, kubridge.
+  - Gotcha: vdpm was rewritten (pacman client + signed channels). The repo's `install-all.sh` is stale, so call the installed `vdpm` binary instead.
+  - Gotcha: run WSL commands from PowerShell, not Git Bash (Git Bash rewrites `/mnt/...` paths).
+  - **[verify]** how SDL3-Vita's window/video coexists with vitaGL. The SDL2 world ships a special `sdl2_vitagl`; for SDL3, plan to use SDL only for input/audio and initialise vitaGL directly.
 - [ ] Install the Vita3K emulator. Get `libshacccg.suprx` onto the console and into Vita3K.
 - [x] Hacked Vita ready: FW 3.65 + Ensō (version spoofed to 3.74, cosmetic only). Still needed: `libshacccg.suprx` installed.
 - [x] GH1 PS2 disc ripped: `original_isos/Guitar Hero (USA).iso` (2,300,313,600 bytes)
@@ -97,3 +100,4 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
 
 ## Log
 - 2026-11-10: Workspace created, upstream cloned and pinned, gd01 audited (this document). Next: Phase 0.
+- 2026-11-10: SVM enabled, Ubuntu on WSL2, VitaSDK 2026.08 + SDL3 + vitaGL installed. Next: a Vita3K install, a desktop baseline build of gd01, then Phase 1 (`vita/CMakeLists.txt`).
