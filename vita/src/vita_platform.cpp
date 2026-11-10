@@ -43,6 +43,7 @@
 
 #include "glsl_es100.h"
 #include "texture_palette.h"
+#include "vita_profile.h"
 
 // newlib heap for the game's own allocations. vitaGL takes its memory from
 // separate pools (CDRAM first, then RAM above the threshold set at init).
@@ -57,6 +58,7 @@ namespace {
 
 constexpr const char* kDataDir = "ux0:data/gd01/";
 constexpr const char* kLogPath = "ux0:data/gd01/gd01.log";
+constexpr const char* kArgsPath = "ux0:data/gd01/args.txt";
 constexpr int kScreenWidth = 960, kScreenHeight = 544;
 constexpr int kVglRamThreshold = 16 * 1024 * 1024;
 
@@ -90,6 +92,97 @@ struct FrameStats {
 FrameStats gFrame;
 uint64_t gFrameStatsStart = 0, gLastSwapEnd = 0;
 
+// Frame phases (vita_profile.h): time, draw calls and time inside vitaGL's
+// draw calls per phase, summed over the report window.
+struct PhaseStats {
+    const char* name = nullptr;
+    uint64_t ns = 0, draws = 0, submitNs = 0, readbacks = 0, readbackNs = 0;
+};
+constexpr int kMaxPhases = 32;
+PhaseStats gPhases[kMaxPhases];
+int gPhaseCount = 0, gPhase = -1;
+uint64_t gPhaseStart = 0;
+const char* const kLoopPhase = "loop";
+
+int phaseSlot(const char* name) {
+    for (int i = 0; i < gPhaseCount; ++i)
+        if (gPhases[i].name == name) return i;
+    if (gPhaseCount == kMaxPhases) return kMaxPhases - 1;  // the last slot takes the overflow
+    gPhases[gPhaseCount].name = name;
+    return gPhaseCount++;
+}
+
+void switchPhase(const char* name, uint64_t now) {
+    if (gPhase >= 0 && gPhaseStart) gPhases[gPhase].ns += now - gPhaseStart;
+    gPhase = name ? phaseSlot(name) : -1;
+    gPhaseStart = now;
+}
+
+// A draw call: counted (and its vitaGL time added) to the current phase.
+struct DrawTimer {
+    uint64_t start = SDL_GetTicksNS();
+    ~DrawTimer() {
+        if (gPhase < 0) return;
+        gPhases[gPhase].submitNs += SDL_GetTicksNS() - start;
+        ++gPhases[gPhase].draws;
+    }
+};
+
+// A framebuffer readback (glReadPixels, glCopyTexSubImage2D,
+// glBlitFramebuffer): on vitaGL these wait for the GPU to finish the frame so
+// far, so their time is GPU time showing up on the CPU.
+struct ReadbackTimer {
+    uint64_t start = SDL_GetTicksNS();
+    ~ReadbackTimer() {
+        if (gPhase < 0) return;
+        gPhases[gPhase].readbackNs += SDL_GetTicksNS() - start;
+        ++gPhases[gPhase].readbacks;
+    }
+};
+
+using ReadPixelsFn = void (*)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void*);
+using CopyTexSubImage2DFn = void (*)(GLenum, GLint, GLint, GLint, GLint, GLint, GLsizei, GLsizei);
+using BlitFramebufferFn = void (*)(GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLbitfield, GLenum);
+ReadPixelsFn realReadPixels = nullptr;
+CopyTexSubImage2DFn realCopyTexSubImage2D = nullptr;
+BlitFramebufferFn realBlitFramebuffer = nullptr;
+
+void hookReadPixels(GLint x, GLint y, GLsizei w, GLsizei h, GLenum format, GLenum type, void* pixels) {
+    ReadbackTimer timer;
+    realReadPixels(x, y, w, h, format, type, pixels);
+}
+
+void hookCopyTexSubImage2D(GLenum target, GLint level, GLint xo, GLint yo, GLint x, GLint y, GLsizei w, GLsizei h) {
+    ReadbackTimer timer;
+    realCopyTexSubImage2D(target, level, xo, yo, x, y, w, h);
+}
+
+void hookBlitFramebuffer(GLint sx0, GLint sy0, GLint sx1, GLint sy1, GLint dx0, GLint dy0, GLint dx1, GLint dy1,
+                         GLbitfield mask, GLenum filter) {
+    ReadbackTimer timer;
+    realBlitFramebuffer(sx0, sy0, sx1, sy1, dx0, dy0, dx1, dy1, mask, filter);
+}
+
+void reportPhases(double frames) {
+    if (gPhaseCount == 0) return;
+    std::string line = "vita: phases (ms per frame: draws in ms | readbacks in ms):";
+    char part[128];
+    for (int i = 0; i < gPhaseCount; ++i) {
+        const PhaseStats& ph = gPhases[i];
+        int n = std::snprintf(part, sizeof part, " %s %.1f", ph.name, double(ph.ns) / 1e6 / frames);
+        if (ph.draws)
+            n += std::snprintf(part + n, sizeof part - n, " (%.0f draws %.1f)", double(ph.draws) / frames,
+                               double(ph.submitNs) / 1e6 / frames);
+        if (ph.readbacks)
+            std::snprintf(part + n, sizeof part - n, " (%.1f readbacks %.1f)", double(ph.readbacks) / frames,
+                          double(ph.readbackNs) / 1e6 / frames);
+        line += part;
+        line += ';';
+        gPhases[i].ns = gPhases[i].draws = gPhases[i].submitNs = gPhases[i].readbacks = gPhases[i].readbackNs = 0;
+    }
+    SDL_Log("%s", line.c_str());
+}
+
 using DrawElementsFn = void (*)(GLenum, GLsizei, GLenum, const void*);
 using BufferDataFn = void (*)(GLenum, GLsizeiptr, const void*, GLenum);
 using BufferSubDataFn = void (*)(GLenum, GLintptr, GLsizeiptr, const void*);
@@ -99,6 +192,7 @@ BufferSubDataFn realBufferSubData = nullptr;
 
 void hookDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
     ++gFrame.draws;
+    DrawTimer timer;
     realDrawElements(mode, count, type, indices);
 }
 
@@ -113,6 +207,8 @@ void hookBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const vo
 }
 
 void frameStatsSwap(uint64_t swapStart, uint64_t swapEnd) {
+    switchPhase("swap", swapStart);
+    switchPhase(kLoopPhase, swapEnd);
     if (gLastSwapEnd) gFrame.cpuNs += swapStart - gLastSwapEnd;
     gFrame.swapNs += swapEnd - swapStart;
     ++gFrame.frames;
@@ -126,6 +222,7 @@ void frameStatsSwap(uint64_t swapStart, uint64_t swapEnd) {
     SDL_Log("vita: perf: %.1f fps; per frame: cpu %.1f ms, swap wait %.1f ms, %.0f draws, %.0f KB buffer uploads",
             f / seconds, double(gFrame.cpuNs) / 1e6 / f, double(gFrame.swapNs) / 1e6 / f, double(gFrame.draws) / f,
             double(gFrame.bufferBytes) / 1024.0 / f);
+    reportPhases(f);
     gFrame = {};
     gFrameStatsStart = swapEnd;
 }
@@ -162,12 +259,14 @@ void reportMemory(const char* when) {
 }
 
 // --- Stand-ins for GL functions vitaGL does not have ---------------------
-// Fence sync objects: vitaGL has none. glFinish makes "signalled" true.
+// Fence sync objects: vitaGL has none. gd01 only uses them in
+// Renderer::endFrame, to keep at most two frames in flight, which vitaGL's
+// triple-buffered swap chain already bounds. So a fence is always
+// "signalled", with no wait. (A glFinish here made the CPU wait for the GPU
+// to finish every frame right after the swap: CPU and GPU never overlapped,
+// 22-25 ms of each song frame, hardware 2026-11-10.)
 constexpr unsigned kGlAlreadySignaled = 0x911A;
-void* standinFenceSync(unsigned /*condition*/, unsigned /*flags*/) {
-    glFinish();
-    return reinterpret_cast<void*>(uintptr_t(1));
-}
+void* standinFenceSync(unsigned /*condition*/, unsigned /*flags*/) { return reinterpret_cast<void*>(uintptr_t(1)); }
 unsigned standinClientWaitSync(void* /*sync*/, unsigned /*flags*/, uint64_t /*timeout*/) { return kGlAlreadySignaled; }
 void standinDeleteSync(void* /*sync*/) {}
 // GPU timer queries (performance overlay only): no timings on Vita, 0 ns.
@@ -354,8 +453,15 @@ void hookUseProgram(GLuint program) {
     realUseProgram(program);
 }
 
+void drawArraysImpl(GLenum mode, GLint first, GLsizei count);
+
 void hookDrawArrays(GLenum mode, GLint first, GLsizei count) {
     ++gFrame.draws;
+    DrawTimer timer;
+    drawArraysImpl(mode, first, count);
+}
+
+void drawArraysImpl(GLenum mode, GLint first, GLsizei count) {
     auto it = gProgramUsesVertexId.find(gCurrentProgram);
     if (it == gProgramUsesVertexId.end() || !it->second) {
         realDrawArrays(mode, first, count);
@@ -482,7 +588,21 @@ void hookLinkProgram(GLuint program) {
 
 void initVitaGl() {
     if (gVglReady) return;
-    SDL_Log("vita: vglInitExtended(%dx%d, RAM threshold %d MB)", kScreenWidth, kScreenHeight, kVglRamThreshold >> 20);
+    // Tuning for experiments (GD01_VITA_* from args.txt, see __wrap_main):
+    // scenes in flight per render target (display, FBOs) and the GXM
+    // parameter buffer. 0 keeps vitaGL's default.
+    auto envInt = [](const char* name, int fallback) {
+        const char* v = std::getenv(name);
+        return v && *v ? std::atoi(v) : fallback;
+    };
+    const int displayScenes = envInt("GD01_VITA_DISPLAY_SCENES", 0), fboScenes = envInt("GD01_VITA_FBO_SCENES", 0);
+    const int paramMb = envInt("GD01_VITA_PARAM_MB", 0);
+    if (displayScenes > 0 || fboScenes > 0)
+        vglSetupRenderTargetScenesNum(uint8_t(displayScenes > 0 ? displayScenes : 1), uint8_t(fboScenes > 0 ? fboScenes : 1));
+    if (paramMb > 0) vglSetParamBufferSize(uint32_t(paramMb) << 20);
+    SDL_Log("vita: vglInitExtended(%dx%d, RAM threshold %d MB; scenes display %d, fbo %d; parameter buffer %s)", kScreenWidth,
+            kScreenHeight, kVglRamThreshold >> 20, displayScenes > 0 ? displayScenes : 1, fboScenes > 0 ? fboScenes : 1,
+            paramMb > 0 ? (std::to_string(paramMb) + " MB").c_str() : "default");
     vglInitExtended(0, kScreenWidth, kScreenHeight, kVglRamThreshold, SCE_GXM_MULTISAMPLE_NONE);
     gVglReady = true;
     GLint maxAttribs = 0;
@@ -507,7 +627,49 @@ __attribute__((constructor)) void vitaEarlyInit() {
 
 }  // namespace
 
+namespace vita {
+
+void profilePhase(const char* name) {
+    if (kFrameStats) switchPhase(name, SDL_GetTicksNS());
+}
+
+}  // namespace vita
+
 extern "C" {
+
+// One-shot command line: ux0:data/gd01/args.txt (whitespace separated, e.g.
+// "--song <id> --autoplay", written by tools/vita-loop.sh --args) is read and
+// deleted, so the next normal start is unaffected. The Vita has no argv.
+// NAME=value words set environment variables instead (GD01_FRAMELOG=1, the
+// GD01_VITA_* tuning read by initVitaGl).
+int __real_main(int argc, char** argv);
+
+int __wrap_main(int argc, char** argv) {
+    static std::vector<std::string> words;
+    static std::vector<char*> args;
+    args.push_back(argc > 0 ? argv[0] : const_cast<char*>("gd01"));
+    if (FILE* f = std::fopen(kArgsPath, "r")) {
+        char word[512];
+        while (std::fscanf(f, "%511s", word) == 1) {
+            // NAME=value (no leading '-'): an environment variable, not an argument.
+            if (const char* eq = std::strchr(word, '='); eq && word[0] != '-') {
+                const std::string name(word, size_t(eq - word));
+                setenv(name.c_str(), eq + 1, 1);
+                SDL_Log("vita: %s from %s", word, kArgsPath);
+                continue;
+            }
+            words.emplace_back(word);
+        }
+        std::fclose(f);
+        sceIoRemove(kArgsPath);
+        std::string joined;
+        for (const std::string& w : words) joined += " " + w;
+        SDL_Log("vita: arguments from %s:%s", kArgsPath, joined.c_str());
+    }
+    for (std::string& w : words) args.push_back(w.data());
+    args.push_back(nullptr);
+    return __real_main(int(args.size() - 1), args.data());
+}
 
 SDL_Window* __real_SDL_CreateWindow(const char* title, int w, int h, SDL_WindowFlags flags);
 
@@ -600,6 +762,9 @@ SDL_FunctionPointer __wrap_SDL_GL_GetProcAddress(const char* name) {
             {"glDrawElements", reinterpret_cast<void**>(&realDrawElements), reinterpret_cast<SDL_FunctionPointer>(hookDrawElements)},
             {"glBufferData", reinterpret_cast<void**>(&realBufferData), reinterpret_cast<SDL_FunctionPointer>(hookBufferData)},
             {"glBufferSubData", reinterpret_cast<void**>(&realBufferSubData), reinterpret_cast<SDL_FunctionPointer>(hookBufferSubData)},
+            {"glReadPixels", reinterpret_cast<void**>(&realReadPixels), reinterpret_cast<SDL_FunctionPointer>(hookReadPixels)},
+            {"glCopyTexSubImage2D", reinterpret_cast<void**>(&realCopyTexSubImage2D), reinterpret_cast<SDL_FunctionPointer>(hookCopyTexSubImage2D)},
+            {"glBlitFramebuffer", reinterpret_cast<void**>(&realBlitFramebuffer), reinterpret_cast<SDL_FunctionPointer>(hookBlitFramebuffer)},
         };
         for (const Hook& h : hooks) {
             if (std::strcmp(name, h.name) == 0) {

@@ -25,6 +25,9 @@ platforms build exactly as upstream.
 | 2026-11-10 | `0005-vita-free-venue-before-load.patch` | `gd-game-01/engine/src/app.cpp` | PS Vita: `startSong()` frees the old venue before building the next (after a retry both did not fit in video memory) |
 | 2026-11-10 | `0006-vita-movie-worker.patch` | `gd-game-01/engine/src/app.cpp` | PS Vita: `.pss` movies are decoded and converted to RGBA on a worker thread (`vita/src/movie_worker.cpp`) instead of the main thread (the intro played at 6-9 FPS); the disc is still read on the main thread only, and the movie clock starts with the first picture |
 | 2026-11-10 | `0007-vita-neon-mpeg2.patch` | `gd-game-01/engine/src/video/mpeg2.cpp` | PS Vita: the MPEG-2 decoder's IDCT, motion compensation, block output and RGBA conversion call NEON versions (`vita/src/mpeg2_neon.cpp`, bit-identical results, self-checked on first use with a fallback to upstream's code); while the movie player is behind, B pictures are skipped and keep their display index (the A9 decodes a 640x448 picture in ~45-55 ms, slower than real time) |
+| 2026-11-10 | `0008-vita-frame-phases.patch` | `gd-game-01/engine/src/app.cpp` | PS Vita: frame phase marks (main loop, game logic, venue update and draw, track, present) for the timing report in gd01.log (`vita/src/vita_profile.h`); no effect on other platforms |
+| 2026-11-10 | `0009-vita-venue-phases.patch` | `gd-game-01/engine/src/render/venue_renderer.cpp` | PS Vita: phase marks inside the venue update (script, guitarist, band, lights, crowd, camera) |
+| 2026-11-10 | `0010-vita-no-track-fade-grab.patch` | `gd-game-01/engine/src/render/track_renderer.cpp` | PS Vita: no `track_fade` screen grab before the highway (vitaGL's copy waits for the GPU to finish the venue: 21-23 ms of every song frame); the highway's far end is not faded into the venue |
 
 ## New files
 
@@ -36,6 +39,7 @@ platforms build exactly as upstream.
 | 2026-11-10 | `vita/src/texture_palette.cpp`, `vita/src/texture_palette.h` | Lossless RGBA8 → 8-bit paletted texture packing (textures of at most 256 colours) |
 | 2026-11-10 | `vita/src/movie_worker.cpp`, `vita/src/movie_worker.h` | Movie decoding thread used by patch 0006 (pinned to core 1, skips B pictures and late conversions while behind, logs decode statistics) |
 | 2026-11-10 | `vita/src/mpeg2_neon.cpp`, `vita/src/mpeg2_neon.h` | NEON versions of the MPEG-2 decoder's inner loops used by patch 0007, with self-tests and timings against scalar copies |
+| 2026-11-10 | `vita/src/vita_profile.h` | Frame phase timing API used by patches 0008 and 0009 (implemented in `vita_platform.cpp`: per phase ms, draw calls, time inside draw calls and framebuffer readbacks) |
 | 2026-11-10 | `vita/compat/dlfcn.h` | Stub dynamic-loader header (the Vita has none) |
 | 2026-11-10 | `vita/tests/` | Desktop checks for the shader rewrite and the palette packing |
 | 2026-11-10 | `tools/` | Toolchain setup, desktop and Vita builds, patch stack, shader dump and validation, GPU memory probe, crash dump decoding, movie decode benchmark, hardware build/deploy/run loop (`vita-loop.sh`) |
@@ -48,4 +52,5 @@ platforms build exactly as upstream.
 - Button play on the Vita's pad instead of a guitar; touch controls off by default.
 - Textures of at most 256 colours are stored paletted and without mip levels (distant surfaces may shimmer slightly).
 - Shaders are rewritten to GLSL ES 1.00; the auto-exposure pass reads its 1x1 level with a texture bias.
+- Songs: the far end of the highway is not faded into the venue (patch 0010).
 - Movies: when the Vita decodes slower than real time, B pictures are skipped, so the video shows fewer pictures per second but stays in sync with its sound.
