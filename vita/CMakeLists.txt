@@ -115,6 +115,8 @@ endforeach()
 # character preview ran out of the default budget (hardware, 2026-11-10).
 set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
 # Allocation failures (src/vita_platform.cpp logs them with their size).
+# One-shot arguments from ux0:data/gd01/args.txt (src/vita_platform.cpp).
+target_link_options(gd01 PRIVATE "-Wl,--wrap=main")
 foreach(sym malloc calloc realloc memalign)
   target_link_options(gd01 PRIVATE "-Wl,--wrap=${sym}")
 endforeach()

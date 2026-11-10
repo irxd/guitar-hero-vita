@@ -24,6 +24,9 @@
 #   --input-delay S  seconds after launch before --input (default 15)
 #   --keep-running   leave the game running after collecting
 #   --cmd CMD        just send one command to port 1338 and exit (e.g. version)
+#   --args ARGS      one-shot gd01 command line for this launch, e.g.
+#                    '--song smokeonthewater --autoplay' (written to
+#                    ux0:data/gd01/args.txt; the game reads and deletes it)
 #
 # Output: agents/scratch/runs/<timestamp>/ with gd01.log, memory.log (only
 # written on an allocation failure), new crash dumps (decoded with
@@ -37,7 +40,7 @@ IP="${VITA_IP:-}"
 FTP_PORT="${VITA_FTP_PORT:-1337}"
 CMD_PORT="${VITA_CMD_PORT:-1338}"
 
-build=0 deploy=1 launch=1 wait_s=60 input="" input_delay=15 keep=0 one_cmd=""
+build=0 deploy=1 launch=1 wait_s=60 input="" input_delay=15 keep=0 one_cmd="" game_args=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --build) build=1 ;;
@@ -48,6 +51,7 @@ while [ $# -gt 0 ]; do
         --input-delay) input_delay="$2"; shift ;;
         --keep-running) keep=1 ;;
         --cmd) one_cmd="$2"; shift ;;
+        --args) game_args="$2"; shift ;;
         -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
@@ -93,6 +97,12 @@ if [ "$deploy" = 1 ]; then
     [ -f "$OUT/gd01" ] && cp "$OUT/gd01" "$RUN/gd01.elf" || true   # unstripped ELF
 fi
 
+if [ "$launch" = 1 ] && [ -n "$game_args" ]; then
+    echo "== arguments: $game_args"
+    printf '%s\n' "$game_args" > "$RUN/args.txt"
+    curl -sS --ftp-method nocwd -T "$RUN/args.txt" "$FTP/ux0:/data/gd01/args.txt"
+fi
+
 if [ "$launch" = 1 ]; then
     vcmd "nosleep on" || true
     echo "== launch $TITLE_ID"
@@ -132,7 +142,7 @@ if [ "$launch" = 1 ] && [ "$keep" = 0 ]; then vcmd "quit $TITLE_ID" || true; fi
     [ -z "$new_dumps" ] || echo "CRASH DUMPS: $new_dumps"
     if [ -f "$RUN/gd01.log" ]; then
         echo "-- perf"
-        grep 'vita: perf' "$RUN/gd01.log" || echo "(no perf lines)"
+        grep -E 'vita: (perf|phases)' "$RUN/gd01.log" || echo "(no perf lines)"
         echo "-- memory (last 3)"
         grep 'vita: memory' "$RUN/gd01.log" | tail -n 3 || true
         echo "-- errors / warnings"

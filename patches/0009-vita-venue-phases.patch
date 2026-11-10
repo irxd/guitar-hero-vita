@@ -1,0 +1,54 @@
+diff --git a/gd-game-01/engine/src/render/venue_renderer.cpp b/gd-game-01/engine/src/render/venue_renderer.cpp
+index bfc3e30..fc78f10 100644
+--- a/gd-game-01/engine/src/render/venue_renderer.cpp
++++ b/gd-game-01/engine/src/render/venue_renderer.cpp
+@@ -1,6 +1,13 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-10: PS Vita: frame phase timing marks for gd01.log (update).
+ #include "render/venue_renderer.h"
++#if defined(__vita__)
++#include "vita_profile.h"  // the Vita port's vita/src: frame phase timing
++#define GD01_VITA_PHASE(name) vita::profilePhase(name)
++#else
++#define GD01_VITA_PHASE(name) ((void)0)
++#endif
+ 
+ #include <SDL3/SDL.h>
+ 
+@@ -239,7 +246,9 @@ void VenueRenderer::update(const VenueFrame& f) {
+         excitement_ = f.excitement;
+         started_ = true;
+     }
++    GD01_VITA_PHASE("venue: script");
+     script_->update(f.ms, f.ticks, f.excitement, f.events, f.downbeat);
++    GD01_VITA_PHASE("venue: guitarist");
+     const float beat = f.ticks / 480.0f;
+     // set_frame_scale (guitarist.dta gtr_*_tempo, theband.dta <part>_*_tempo).
+     for (const std::string& e : f.events) tempoEvent(e);
+@@ -333,6 +342,7 @@ void VenueRenderer::update(const VenueFrame& f) {
+         if (hands2_) hands2_->update(beat, false, *guitarist2_);
+         guitarist2_->poll(beat, f.ms, guitarScale_);
+     }
++    GD01_VITA_PHASE("venue: band");
+     for (Member& m : band_) {
+         // theband.dta: upcoming_<part>_on/off and the drummer's patterns play
+         // with kAnimNow|kAnimGraphLoop; each downbeat an active member (by the
+@@ -369,7 +379,9 @@ void VenueRenderer::update(const VenueFrame& f) {
+             guitarist_->setEyeCamera(camera_->transform().pos);
+         }
+     }
++    GD01_VITA_PHASE("venue: lights");
+     updateSpotLight();
++    GD01_VITA_PHASE("venue: crowd");
+     if (crowd_) {
+         for (const std::string& e : f.events) crowd_->tempoEvent(e);
+         std::string shot = camera_ ? camera_->shotName() : "";
+@@ -377,6 +389,7 @@ void VenueRenderer::update(const VenueFrame& f) {
+                        camera_ ? camera_->transform() : Xfm{}, camera_ ? camera_->projX() : 1.0f);
+         lastShot_ = shot;
+     }
++    GD01_VITA_PHASE("venue: camera and rest");
+     if (camera_) {
+         VenueCamera::State cs;
+         cs.starMode = f.starMode;

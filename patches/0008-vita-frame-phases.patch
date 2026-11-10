@@ -1,0 +1,95 @@
+diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
+index e53ad94..4f53469 100644
+--- a/gd-game-01/engine/src/app.cpp
++++ b/gd-game-01/engine/src/app.cpp
+@@ -4,6 +4,7 @@
+ // Modified by irxd on 2026-11-10: PS Vita: no Enhanced Settings backdrop venue (loadBackdrop).
+ // Modified by irxd on 2026-11-10: PS Vita: free the old venue before loading the next (startSong).
+ // Modified by irxd on 2026-11-10: PS Vita: movies decoded on a worker thread (startMovie, movieFrame, endMovie).
++// Modified by irxd on 2026-11-10: PS Vita: frame phase timing marks for gd01.log (frame).
+ #include "app.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -49,6 +50,10 @@
+ #include "video/pss.h"
+ #if defined(__vita__)
+ #include "movie_worker.h"  // the Vita port's vita/src: movies decoded on another core
++#include "vita_profile.h"  // the Vita port's vita/src: frame phase timing
++#define GD01_VITA_PHASE(name) vita::profilePhase(name)
++#else
++#define GD01_VITA_PHASE(name) ((void)0)
+ #endif
+ #include "ui/ui_system.h"
+ #include "scene/scene.h"
+@@ -2428,6 +2433,7 @@ void App::frame() {
+     }
+     if (synth_) synth_->poll(std::min(dt * 1000.0f, 100.0f));
+ 
++    GD01_VITA_PHASE("logic");
+     if (screen_ == Screen::Playing || screen_ == Screen::Paused) {
+         float t = static_cast<float>(mixer_.frameTimeMs() - avOffsetMs());
+         const float drawT = t + float(enhancedInt("video_offset"));  // Audio / Video Calibration
+@@ -2504,7 +2510,9 @@ void App::frame() {
+         if (screen_ != Screen::Results) {
+             const SongInfo& info = songs_[playingIndex_];
+             std::string title = info.name + " - " + info.artist + (autoplay_ ? "  [autoplay]" : "");
++            GD01_VITA_PHASE("venue update");
+             if (venue_ && screen_ == Screen::Playing) updateVenue(t);
++            GD01_VITA_PHASE("venue draw");
+             if (venue_ && (!ui_ || ui_->arenaShowing())) {  // arena set_showing 0: the No Venue cheat
+                 // Menus and the HUD stay 16:9; the venue may fill an ultrawide window up to 21:9.
+                 venue_->setAspect(renderer_.beginWide(21.0f / 9.0f));
+@@ -2525,6 +2533,7 @@ void App::frame() {
+                 }
+                 renderer_.endWide();
+             }
++            GD01_VITA_PHASE("track");
+             // arena_game.dta game_lost / game_outro: the track and the HUD go away.
+             if (track_ && track_->exploding()) {
+                 renderer_.clearDepth();  // track_panel explode (arena game_won)
+@@ -2551,7 +2560,9 @@ void App::frame() {
+                 uint64_t now = SDL_GetTicksNS();
+                 float udt = uiTicks_ ? float(now - uiTicks_) / 1e6f : 16.0f;
+                 uiTicks_ = now;
++                GD01_VITA_PHASE("ui update");
+                 ui_->update(std::min(udt, 100.0f));
++                GD01_VITA_PHASE("ui draw");
+                 if (ui_->inGame()) ui_->draw();
+             } else if (screen_ == Screen::Paused) {
+                 renderer_.fillRect(0, 0, kScreenW, kScreenH, {0, 0, 0, 160});
+@@ -2575,6 +2586,7 @@ void App::frame() {
+         if (screen_ == Screen::Menu) ui_->draw();
+     } else if (screen_ == Screen::Menu) drawMenu();
+     else if (screen_ == Screen::Results) drawResults();
++    GD01_VITA_PHASE("present");
+ }
+ 
+ // The GL context the game asks for: OpenGL 3.3 core (forward compatible, as
+@@ -2757,7 +2769,9 @@ int App::run(int* restartSlot) {
+ 
+     std::vector<InputEvent> actions;
+     while (running_) {
++        GD01_VITA_PHASE("loop: touch lanes");
+         updateTouchLanes();
++        GD01_VITA_PHASE("loop: events");
+         SDL_Event e;
+         while (SDL_PollEvent(&e)) {
+             if (e.type == SDL_EVENT_QUIT) running_ = false;
+@@ -2789,7 +2803,9 @@ int App::run(int* restartSlot) {
+             }
+             input_.handle(e, actions);
+         }
++        GD01_VITA_PHASE("loop: input poll");
+         input_.poll(SDL_GetTicksNS(), actions);
++        GD01_VITA_PHASE("loop: actions");
+         for (auto [mx, my] : input_.takeMenuTaps())  // a tap in the menus is a click
+             if (ui_ && !movie_) ui_->mouse(mx, my, true);
+             else if (movie_) endMovie();  // a tap skips a movie, like a button
+@@ -2804,6 +2820,7 @@ int App::run(int* restartSlot) {
+         }
+         actions.clear();
+ 
++        GD01_VITA_PHASE("begin frame");
+         renderer_.beginFrame({movie_ ? uint8_t(0) : uint8_t(12), movie_ ? uint8_t(0) : uint8_t(10), movie_ ? uint8_t(0) : uint8_t(16), 255});
+         if (movie_) movieFrame();
+         else frame();
