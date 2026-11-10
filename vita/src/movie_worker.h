@@ -73,6 +73,7 @@ private:
     bool started_ = false;
     bool done_ = false;
     uint64_t target_ = 0;
+    uint64_t readWaitNs_ = 0;  // time the worker waited for the main thread's bytes
     std::deque<Picture> ready_;
     std::vector<std::vector<uint8_t>> spare_;  // RGBA buffers for reuse
     std::string error_;

@@ -1,0 +1,84 @@
+diff --git a/gd-game-01/engine/src/video/mpeg2.cpp b/gd-game-01/engine/src/video/mpeg2.cpp
+index d358161..56cf0c1 100644
+--- a/gd-game-01/engine/src/video/mpeg2.cpp
++++ b/gd-game-01/engine/src/video/mpeg2.cpp
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-10: PS Vita: IDCT, motion compensation, block output and RGBA conversion run on NEON, and B pictures can be skipped when the player is late (vita/src/mpeg2_neon.cpp).
+ #include "video/mpeg2.h"
+ 
+ #include <algorithm>
+@@ -10,6 +11,9 @@
+ #include <deque>
+ #include <stdexcept>
+ #include <string>
++#if defined(__vita__)
++#include "mpeg2_neon.h"
++#endif
+ 
+ // Section and table numbers below refer to ISO/IEC 13818-2.
+ 
+@@ -292,6 +296,11 @@ inline uint8_t clamp255(int v) { return static_cast<uint8_t>(v < 0 ? 0 : v > 255
+ // Inverse DCT (separable float, §A) and block output.
+ 
+ void idct8x8(const int16_t* in, int* out, uint8_t rowMask) {
++#if defined(__vita__)
++    // PS Vita: the scalar float version below is slow on the A9 (no NEON
++    // without fast-math, a libm floor per pixel); same sums, same order.
++    if (vita::idct8x8Neon(in, out, rowMask)) return;
++#endif
+     const auto& c = tables().idct;
+     float tmp[64];
+     for (int y = 0; y < 8; ++y) {
+@@ -326,6 +335,9 @@ void idct8x8(const int16_t* in, int* out, uint8_t rowMask) {
+ 
+ template <bool Avg>
+ void predictBlockT(uint8_t* dst, int dstStride, const uint8_t* src, int srcStride, int w, int h, int hx, int hy) {
++#if defined(__vita__)
++    if (vita::predictNeon(Avg, dst, dstStride, src, srcStride, w, h, hx, hy)) return;  // PS Vita: same results
++#endif
+     for (int y = 0; y < h; ++y) {
+         const uint8_t* s0 = src + y * srcStride;
+         const uint8_t* s1 = s0 + srcStride;
+@@ -610,6 +622,18 @@ struct Mpeg2Decoder::Impl {
+         if (codingType == 2 && bwdRef < 0) skipPicture = true;  // P without a reference
+         else if (codingType == 3 && bwdRef < 0) skipPicture = true;
+         else if (codingType < 1 || codingType > 3) skipPicture = true;  // D pictures
++#if defined(__vita__)
++        // PS Vita: B pictures are never references, so the player may skip
++        // them while it is behind (the A9 decodes slower than real time). The
++        // previous picture has been returned by now (decode() returns as soon
++        // as `ready` is non-empty) and a B picture is displayed as soon as it
++        // is decoded, so the skipped picture's display index is the next one.
++        if (codingType == 3 && !skipPicture && vita::mpeg2SkipBPictures()) {
++            skipPicture = true;
++            ++nextIndex;
++            vita::countSkippedBPicture();
++        }
++#endif
+         // Defaults if the picture coding extension were missing.
+         structure = 3;
+     }
+@@ -843,6 +867,9 @@ struct Mpeg2Decoder::Impl {
+                 stride = cs;
+             }
+             idct8x8(coef, resid, rowMask);
++#if defined(__vita__)
++            if (vita::addBlockNeon(dst, stride, resid, intra)) continue;  // PS Vita: same results
++#endif
+             for (int y = 0; y < 8; ++y) {
+                 uint8_t* d = dst + y * stride;
+                 const int* r = resid + y * 8;
+@@ -975,6 +1002,11 @@ void mpeg2ToRgba(const Mpeg2Frame& f, uint8_t* dst, size_t dstStride, bool deint
+     // BT.601 limited range, 16.16 fixed point.
+     constexpr int kY = 76309, kRv = 104597, kGu = 25675, kGv = 53279, kBu = 132201;
+     bool blend = deinterlace && !f.progressive;
++#if defined(__vita__)
++    if (vita::yuvToRgbaNeon(f.y.data(), f.lumaStride, f.cb.data(), f.cr.data(), f.chromaStride, f.width, f.height,
++                            f.progressive, blend, dst, dstStride))
++        return;  // PS Vita: same results
++#endif
+     for (int y = 0; y < f.height; ++y) {
+         // Interlaced 4:2:0 keeps each field's chroma on its own lines.
+         int cy = f.progressive ? y >> 1 : ((y >> 2) << 1) | (y & 1);
