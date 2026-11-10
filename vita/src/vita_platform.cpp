@@ -36,10 +36,13 @@
 #include <cstring>
 #include <map>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "glsl_es100.h"
+#include "texture_palette.h"
 
 // newlib heap for the game's own allocations. vitaGL takes its memory from
 // separate pools (CDRAM first, then RAM above the threshold set at init).
@@ -69,6 +72,9 @@ constexpr const char* kMemoryLogPath = "ux0:data/gd01/memory.log";
 constexpr uint64_t kMemoryReportNs = 10'000'000'000ull;  // gd01.log report every 10 s
 uint64_t gNextMemoryReport = 0;
 size_t gPeakHeapUsed = 0;
+// Texture upload counters (paletted textures, below).
+unsigned gPaletteCount = 0, gRgbaCount = 0;
+uint64_t gPaletteSavedBytes = 0, gRgbaBytes = 0;
 
 void rawLog(const char* path, const char* fmt, ...) {
     char line[256];
@@ -94,9 +100,11 @@ void logAllocFailure(const char* what, size_t size) {
 void reportMemory(const char* when) {
     const struct mallinfo mi = mallinfo();
     if (size_t(mi.uordblks) > gPeakHeapUsed) gPeakHeapUsed = size_t(mi.uordblks);
-    SDL_Log("vita: memory [%s]: heap %u / %u MB (peak %u MB); vitaGL free VRAM %u MB, RAM %u MB", when,
-            unsigned(mi.uordblks >> 20), unsigned(_newlib_heap_size_user >> 20), unsigned(gPeakHeapUsed >> 20),
-            unsigned(vglMemFree(VGL_MEM_VRAM) >> 20), unsigned(vglMemFree(VGL_MEM_RAM) >> 20));
+    SDL_Log("vita: memory [%s]: heap %u / %u MB (peak %u MB); vitaGL free VRAM %u MB, RAM %u MB; "
+            "textures: %u paletted (%u MB saved), %u RGBA (%u MB)",
+            when, unsigned(mi.uordblks >> 20), unsigned(_newlib_heap_size_user >> 20), unsigned(gPeakHeapUsed >> 20),
+            unsigned(vglMemFree(VGL_MEM_VRAM) >> 20), unsigned(vglMemFree(VGL_MEM_RAM) >> 20), gPaletteCount,
+            unsigned(gPaletteSavedBytes >> 20), gRgbaCount, unsigned(gRgbaBytes >> 20));
 }
 
 // --- Stand-ins for GL functions vitaGL does not have ---------------------
@@ -157,6 +165,116 @@ struct ShaderInfo {
 };
 std::map<GLuint, ShaderInfo> gShaders;
 std::map<GLuint, std::vector<GLuint>> gProgramShaders;
+
+// --- Paletted textures -----------------------------------------------------
+// gd01 uploads every texture as RGBA8 (the PS2's 4/8-bit palettes expanded),
+// and a venue overflowed the video memory: vitaGL then keeps textures in
+// main RAM and the frame rate fell to 8-15 (hardware, 2026-11-10). Uploads
+// of at most 256 colours become GL_PALETTE8_RGBA8_OES (texture_palette.cpp):
+// lossless, a quarter of the size. Those textures keep no mip levels (the
+// mipmapped filters fall back to their base filter): a Vita deviation.
+constexpr bool kPaletteTextures = true;
+constexpr GLsizei kPaletteMinTexels = 32 * 32;  // smaller ones are not worth the CPU time
+
+using BindTextureFn = void (*)(GLenum, GLuint);
+using ActiveTextureFn = void (*)(GLenum);
+using TexImage2DFn = void (*)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*);
+using GenerateMipmapFn = void (*)(GLenum);
+using TexParameteriFn = void (*)(GLenum, GLenum, GLint);
+using DeleteTexturesFn = void (*)(GLsizei, const GLuint*);
+BindTextureFn realBindTexture = nullptr;
+ActiveTextureFn realActiveTexture = nullptr;
+TexImage2DFn realTexImage2D = nullptr;
+GenerateMipmapFn realGenerateMipmap = nullptr;
+TexParameteriFn realTexParameteri = nullptr;
+DeleteTexturesFn realDeleteTextures = nullptr;
+
+GLuint gBoundTexture2D[32] = {};
+int gActiveUnit = 0;
+std::unordered_set<GLuint> gPaletted;
+// Each texture's GL_TEXTURE_MIN_FILTER as gd01 set it (vitaGL has no
+// glGetTexParameteriv); absent = the GL default, a mipmapped filter.
+std::unordered_map<GLuint, GLint> gMinFilter;
+bool gPaletteDisabled = false;  // set if vitaGL ever rejects a paletted upload
+
+GLuint boundTexture2D() { return gBoundTexture2D[gActiveUnit & 31]; }
+
+GLint baseFilter(GLint filter) {
+    switch (filter) {
+        case GL_NEAREST_MIPMAP_NEAREST:
+        case GL_NEAREST_MIPMAP_LINEAR: return GL_NEAREST;
+        case GL_LINEAR_MIPMAP_NEAREST:
+        case GL_LINEAR_MIPMAP_LINEAR: return GL_LINEAR;
+        default: return filter;
+    }
+}
+
+void hookBindTexture(GLenum target, GLuint texture) {
+    if (target == GL_TEXTURE_2D) gBoundTexture2D[gActiveUnit & 31] = texture;
+    realBindTexture(target, texture);
+}
+
+void hookActiveTexture(GLenum unit) {
+    gActiveUnit = int(unit - GL_TEXTURE0);
+    realActiveTexture(unit);
+}
+
+bool uploadPaletted(GLenum target, GLsizei w, GLsizei h, const void* pixels) {
+    static std::vector<uint8_t> blob;  // reused: no allocation churn per upload
+    if (!vita::paletteRgba8(static_cast<const uint8_t*>(pixels), w, h, blob)) return false;
+    while (glGetError() != GL_NO_ERROR) {}
+    glCompressedTexImage2D(target, 0, GL_PALETTE8_RGBA8_OES, w, h, 0, GLsizei(blob.size()), blob.data());
+    if (const GLenum err = glGetError(); err != GL_NO_ERROR) {
+        SDL_Log("vita: paletted upload %dx%d rejected (GL error 0x%x): paletted textures off", w, h, err);
+        gPaletteDisabled = true;
+        return false;
+    }
+    const auto it = gMinFilter.find(boundTexture2D());
+    const GLint minFilter = it != gMinFilter.end() ? it->second : GL_NEAREST_MIPMAP_LINEAR;
+    if (baseFilter(minFilter) != minFilter) realTexParameteri(target, GL_TEXTURE_MIN_FILTER, baseFilter(minFilter));
+    return true;
+}
+
+void hookTexImage2D(GLenum target, GLint level, GLint internal, GLsizei w, GLsizei h, GLint border, GLenum format,
+                    GLenum type, const void* pixels) {
+    const GLuint tex = boundTexture2D();
+    if (target == GL_TEXTURE_2D && tex) {
+        if (level > 0 && gPaletted.count(tex)) return;  // a paletted texture keeps no mip levels
+        if (level == 0) {
+            gPaletted.erase(tex);
+            const bool eligible = kPaletteTextures && !gPaletteDisabled && pixels && border == 0 && format == GL_RGBA &&
+                                  type == GL_UNSIGNED_BYTE && (internal == GL_RGBA || internal == GL_RGBA8) &&
+                                  w * h >= kPaletteMinTexels;
+            if (eligible && uploadPaletted(target, w, h, pixels)) {
+                gPaletted.insert(tex);
+                ++gPaletteCount;
+                gPaletteSavedBytes += uint64_t(w) * uint64_t(h) * 3 - vita::kPalette8Bytes;
+                return;
+            }
+            if (pixels) ++gRgbaCount, gRgbaBytes += uint64_t(w) * uint64_t(h) * 4;
+        }
+    }
+    realTexImage2D(target, level, internal, w, h, border, format, type, pixels);
+}
+
+void hookGenerateMipmap(GLenum target) {
+    if (target == GL_TEXTURE_2D && gPaletted.count(boundTexture2D())) return;
+    realGenerateMipmap(target);
+}
+
+void hookTexParameteri(GLenum target, GLenum pname, GLint param) {
+    if (target == GL_TEXTURE_2D && pname == GL_TEXTURE_MIN_FILTER) {
+        const GLuint tex = boundTexture2D();
+        gMinFilter[tex] = param;
+        if (gPaletted.count(tex)) param = baseFilter(param);
+    }
+    realTexParameteri(target, pname, param);
+}
+
+void hookDeleteTextures(GLsizei n, const GLuint* textures) {
+    for (GLsizei i = 0; i < n; ++i) gPaletted.erase(textures[i]), gMinFilter.erase(textures[i]);
+    realDeleteTextures(n, textures);
+}
 
 // --- gl_VertexID emulation -------------------------------------------------
 // Programs whose vertex shader read gl_VertexID (glsl_es100.cpp turned it
@@ -409,6 +527,27 @@ SDL_FunctionPointer __wrap_SDL_GL_GetProcAddress(const char* name) {
     if (!fn) {
         SDL_Log("vita: GL %s is missing from vitaGL", name);
         return fn;
+    }
+    if (kPaletteTextures) {
+        struct Hook {
+            const char* name;
+            void** real;
+            SDL_FunctionPointer hook;
+        };
+        const Hook hooks[] = {
+            {"glBindTexture", reinterpret_cast<void**>(&realBindTexture), reinterpret_cast<SDL_FunctionPointer>(hookBindTexture)},
+            {"glActiveTexture", reinterpret_cast<void**>(&realActiveTexture), reinterpret_cast<SDL_FunctionPointer>(hookActiveTexture)},
+            {"glTexImage2D", reinterpret_cast<void**>(&realTexImage2D), reinterpret_cast<SDL_FunctionPointer>(hookTexImage2D)},
+            {"glGenerateMipmap", reinterpret_cast<void**>(&realGenerateMipmap), reinterpret_cast<SDL_FunctionPointer>(hookGenerateMipmap)},
+            {"glTexParameteri", reinterpret_cast<void**>(&realTexParameteri), reinterpret_cast<SDL_FunctionPointer>(hookTexParameteri)},
+            {"glDeleteTextures", reinterpret_cast<void**>(&realDeleteTextures), reinterpret_cast<SDL_FunctionPointer>(hookDeleteTextures)},
+        };
+        for (const Hook& h : hooks) {
+            if (std::strcmp(name, h.name) == 0) {
+                *h.real = reinterpret_cast<void*>(fn);
+                return h.hook;
+            }
+        }
     }
     if (kRewriteToEs100 || kTraceShaders) {
         if (std::strcmp(name, "glCreateShader") == 0) {
