@@ -249,6 +249,10 @@ std::unordered_set<GLuint> gPaletted;
 // Each texture's GL_TEXTURE_MIN_FILTER as gd01 set it (vitaGL has no
 // glGetTexParameteriv); absent = the GL default, a mipmapped filter.
 std::unordered_map<GLuint, GLint> gMinFilter;
+// Textures whose level 0 was uploaded before: re-uploaded ones are dynamic
+// (the movie picture, every frame) and stay RGBA8, as scanning and packing
+// them each frame cost the main thread time for nothing.
+std::unordered_set<GLuint> gUploadedOnce;
 bool gPaletteDisabled = false;  // set if vitaGL ever rejects a paletted upload
 
 GLuint boundTexture2D() { return gBoundTexture2D[gActiveUnit & 31]; }
@@ -296,7 +300,8 @@ void hookTexImage2D(GLenum target, GLint level, GLint internal, GLsizei w, GLsiz
         if (level > 0 && gPaletted.count(tex)) return;  // a paletted texture keeps no mip levels
         if (level == 0) {
             gPaletted.erase(tex);
-            const bool eligible = kPaletteTextures && !gPaletteDisabled && pixels && border == 0 && format == GL_RGBA &&
+            const bool dynamic = !gUploadedOnce.insert(tex).second;
+            const bool eligible = kPaletteTextures && !gPaletteDisabled && !dynamic && pixels && border == 0 && format == GL_RGBA &&
                                   type == GL_UNSIGNED_BYTE && (internal == GL_RGBA || internal == GL_RGBA8) &&
                                   w * h >= kPaletteMinTexels;
             if (eligible && uploadPaletted(target, w, h, pixels)) {
@@ -326,7 +331,7 @@ void hookTexParameteri(GLenum target, GLenum pname, GLint param) {
 }
 
 void hookDeleteTextures(GLsizei n, const GLuint* textures) {
-    for (GLsizei i = 0; i < n; ++i) gPaletted.erase(textures[i]), gMinFilter.erase(textures[i]);
+    for (GLsizei i = 0; i < n; ++i) gPaletted.erase(textures[i]), gMinFilter.erase(textures[i]), gUploadedOnce.erase(textures[i]);
     realDeleteTextures(n, textures);
 }
 
