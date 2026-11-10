@@ -1,0 +1,25 @@
+diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
+index a3f3760..d9f2692 100644
+--- a/gd-game-01/engine/src/app.cpp
++++ b/gd-game-01/engine/src/app.cpp
+@@ -2,6 +2,7 @@
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-10: PS Vita Enhanced Settings profile (profileValues).
+ // Modified by irxd on 2026-11-10: PS Vita: no Enhanced Settings backdrop venue (loadBackdrop).
++// Modified by irxd on 2026-11-10: PS Vita: free the old venue before loading the next (startSong).
+ #include "app.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -910,6 +911,12 @@ void App::startSong(size_t index, ControllerMode mode) {
+                 // FUN_00282870 (final_win): the career's final song (above Easy, as the game over below).
+                 bool finalSong = ui_ && ui_->interp().send("meta", "get", {Value::symbol("mode")}).str() == "career" &&
+                                  difficulty_ > 0 && campaign_ && campaign_->finalSong(difficulty_, info.id);
++#if defined(__vita__)
++                // PS Vita: the assignment below builds the new venue while the
++                // old one is still loaded; on a restart the two did not fit in
++                // the video memory and the models went missing. Free it first.
++                venue_.reset();
++#endif
+                 venue_ = std::make_unique<VenueRenderer>(
+                     renderer_, *data_, info.venue,
+                     VenueRenderer::Band{info.character, guitar1, info.animTempo, character2, guitar2, info.band, finalSong});
