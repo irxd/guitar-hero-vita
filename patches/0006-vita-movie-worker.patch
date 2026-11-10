@@ -1,0 +1,109 @@
+diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
+index d9f2692..e53ad94 100644
+--- a/gd-game-01/engine/src/app.cpp
++++ b/gd-game-01/engine/src/app.cpp
+@@ -3,6 +3,7 @@
+ // Modified by irxd on 2026-11-10: PS Vita Enhanced Settings profile (profileValues).
+ // Modified by irxd on 2026-11-10: PS Vita: no Enhanced Settings backdrop venue (loadBackdrop).
+ // Modified by irxd on 2026-11-10: PS Vita: free the old venue before loading the next (startSong).
++// Modified by irxd on 2026-11-10: PS Vita: movies decoded on a worker thread (startMovie, movieFrame, endMovie).
+ #include "app.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -46,6 +47,9 @@
+ #include "game/campaign.h"
+ #include "video/mpeg2.h"
+ #include "video/pss.h"
++#if defined(__vita__)
++#include "movie_worker.h"  // the Vita port's vita/src: movies decoded on another core
++#endif
+ #include "ui/ui_system.h"
+ #include "scene/scene.h"
+ #include "scene/particles.h"
+@@ -552,6 +556,10 @@ private:
+         SDL_AudioStream* audio = nullptr;
+         std::unique_ptr<AudioRoute> route;  // the song's audio backend when not local (owns `audio`)
+         Image frame;
++#if defined(__vita__)
++        std::unique_ptr<vita::MovieWorker> worker;  // decodes on another core (replaces `pss`)
++        bool fedEnd = false;  // the whole file was handed to the worker
++#endif
+     };
+     std::unique_ptr<Movie> movie_;
+     SDL_Joystick* virtualPad_ = nullptr;  // GD01_VIRTUAL_PAD (development aid)
+@@ -1361,6 +1369,9 @@ void App::startMovie(const std::string& file) {
+     auto m = std::make_unique<Movie>();
+     m->path = path;
+     Movie* mp = m.get();
++#if defined(__vita__)
++    (void)mp;  // the worker (made below, with the audio stream) reads the movie
++#else
+     try {
+         m->pss = std::make_unique<PssMovie>([this, mp](uint8_t* dst, size_t n) {
+             size_t got = data_->readRange(mp->path, mp->pos, dst, n);
+@@ -1372,6 +1383,7 @@ void App::startMovie(const std::string& file) {
+         SDL_Log("movie %s: %s", path.c_str(), ex.what());
+         return;
+     }
++#endif
+     SDL_AudioSpec spec{SDL_AUDIO_S16, PssMovie::kAudioChannels, PssMovie::kAudioRate};
+     if (!mixer_.outputBackend().empty()) {
+         // The movie's sound through the same backend as the game's (its own
+@@ -1392,11 +1404,47 @@ void App::startMovie(const std::string& file) {
+     }
+     mixer_.stopMusic(0);  // the movie plays alone
+     m->startNs = SDL_GetTicksNS();
++#if defined(__vita__)
++    m->worker = std::make_unique<vita::MovieWorker>(m->audio);
++    m->startNs = 0;  // the clock starts with the worker's first picture
++#endif
+     movie_ = std::move(m);
+ }
+ 
+ void App::movieFrame() {
+     Movie& m = *movie_;
++#if defined(__vita__)
++    if (m.worker) {
++        // The disc is read here only (GameData shares one file handle): hand
++        // the worker the file's next bytes while it has room.
++        static std::vector<uint8_t> chunk(64 * 1024);
++        for (int i = 0; i < 8 && !m.fedEnd && m.worker->wantBytes() >= chunk.size(); ++i) {
++            const size_t got = data_->readRange(m.path, m.pos, chunk.data(), chunk.size());
++            m.pos += got;
++            if (got) m.worker->feed(chunk.data(), got);
++            if (got < chunk.size()) m.worker->feedEnd(), m.fedEnd = true;
++        }
++        if (const std::string why = m.worker->error(); !why.empty()) {
++            SDL_Log("movie %s: %s", m.path.c_str(), why.c_str());
++            endMovie();
++            return;
++        }
++        if (m.worker->finished()) {
++            endMovie();
++            return;
++        }
++        if (!m.worker->started()) return;
++        if (!m.startNs) m.startNs = SDL_GetTicksNS();
++        const uint64_t target = uint64_t(double(SDL_GetTicksNS() - m.startNs) / 1e9 * PssMovie::kFrameRate);
++        const bool changed = m.worker->take(target, m.frame.rgba, m.frame.width, m.frame.height);
++        if (m.frame.width == 0) return;
++        if (!m.texture) m.texture = renderer_.createTexture(m.frame);
++        else if (changed) renderer_.updateTexture(m.texture, m.frame);
++        float h = kScreenH, w = h * 4.0f / 3.0f;  // the PS2 picture is 4:3: pillarboxed, as below
++        renderer_.image(m.texture, (kScreenW - w) * 0.5f, 0, w, h, {255, 255, 255, 255}, Blend::Opaque);
++        return;
++    }
++#endif
+     std::vector<int16_t> pcm;
+     if (m.pss->takeAudio(pcm) && m.audio) SDL_PutAudioStreamData(m.audio, pcm.data(), int(pcm.size() * sizeof(int16_t)));
+     double elapsed = double(SDL_GetTicksNS() - m.startNs) / 1e9;
+@@ -1476,6 +1524,9 @@ void App::drawVersion() {
+ 
+ void App::endMovie() {
+     if (!movie_) return;
++#if defined(__vita__)
++    movie_->worker.reset();  // joins its thread before the audio stream it writes to goes away
++#endif
+     if (movie_->route) movie_->route.reset();  // stops its output, destroys `audio`
+     else if (movie_->audio) SDL_DestroyAudioStream(movie_->audio);
+     movie_.reset();

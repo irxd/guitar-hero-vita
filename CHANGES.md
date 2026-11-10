@@ -23,6 +23,7 @@ platforms build exactly as upstream.
 | 2026-11-10 | `0003-vita-character-preview-cache.patch` | `gd-game-01/engine/src/ui/select_panels.cpp` | PS Vita: the character preview cache holds 2 models instead of 6 (6 ran out of memory) |
 | 2026-11-10 | `0004-vita-joypad-frets.patch` | `gd-game-01/engine/src/input/input.cpp` | PS Vita: joypad fret layout L, Square, Triangle, Circle, R (the PS2 table uses L2/R2, which the Vita lacks); in a song a menu helper button bound to a fret is only that fret (Circle no longer pauses) |
 | 2026-11-10 | `0005-vita-free-venue-before-load.patch` | `gd-game-01/engine/src/app.cpp` | PS Vita: `startSong()` frees the old venue before building the next (after a retry both did not fit in video memory) |
+| 2026-11-10 | `0006-vita-movie-worker.patch` | `gd-game-01/engine/src/app.cpp` | PS Vita: `.pss` movies are decoded and converted to RGBA on a worker thread (`vita/src/movie_worker.cpp`) instead of the main thread (the intro played at 6-9 FPS); the disc is still read on the main thread only, and the movie clock starts with the first picture |
 
 ## New files
 
@@ -32,6 +33,7 @@ platforms build exactly as upstream.
 | 2026-11-10 | `vita/src/vita_platform.cpp` | Vita platform layer, reached through linker `--wrap` of SDL calls: vitaGL bring-up, stand-ins for 5 GL functions vitaGL lacks, data paths in `ux0:data/gd01/`, logging, memory and frame statistics, shader hooks, `gl_VertexID` emulation, paletted texture uploads |
 | 2026-11-10 | `vita/src/glsl_es100.cpp`, `vita/src/glsl_es100.h` | GLSL ES 3.00 → 1.00 rewrite of gd01's shaders for vitaGL's translator |
 | 2026-11-10 | `vita/src/texture_palette.cpp`, `vita/src/texture_palette.h` | Lossless RGBA8 → 8-bit paletted texture packing (textures of at most 256 colours) |
+| 2026-11-10 | `vita/src/movie_worker.cpp`, `vita/src/movie_worker.h` | Movie decoding thread used by patch 0006 |
 | 2026-11-10 | `vita/compat/dlfcn.h` | Stub dynamic-loader header (the Vita has none) |
 | 2026-11-10 | `vita/tests/` | Desktop checks for the shader rewrite and the palette packing |
 | 2026-11-10 | `tools/` | Toolchain setup, desktop and Vita builds, patch stack, shader dump and validation, GPU memory probe, crash dump decoding |
