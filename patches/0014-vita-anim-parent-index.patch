@@ -1,0 +1,62 @@
+diff --git a/gd-game-01/engine/src/scene/anim.cpp b/gd-game-01/engine/src/scene/anim.cpp
+index 0902ef0..9a66da9 100644
+--- a/gd-game-01/engine/src/scene/anim.cpp
++++ b/gd-game-01/engine/src/scene/anim.cpp
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-11: PS Vita: parent indices resolved once instead of by name on every transform update.
+ #include "scene/anim.h"
+ 
+ #include "scene/particles.h"
+@@ -136,6 +137,12 @@ AnimPlayer::AnimPlayer(std::vector<Scene*> scenes) : scenes_(std::move(scenes))
+         Transformable& t = *n.obj->transformable();
+         t.world = compose(t.local, order_[it->second].obj->transformable()->world);
+     }
++#if defined(__vita__)
++    vitaParent_.assign(order_.size(), order_.size());
++    for (size_t i = 0; i < order_.size(); ++i)
++        if (!order_[i].parent.empty())
++            if (auto it = nodeIndex_.find(order_[i].parent); it != nodeIndex_.end()) vitaParent_[i] = it->second;
++#endif
+ }
+ 
+ SceneObject* AnimPlayer::find(const std::string& name) {
+@@ -408,9 +415,13 @@ void AnimPlayer::updateTransforms() {
+     for (size_t i = 0; i < order_.size(); ++i) {
+         Node& n = order_[i];
+         Transformable& t = *n.obj->transformable();
++#if defined(__vita__)
++        const size_t parent = vitaParent_[i];
++#else
+         size_t parent = order_.size();
+         if (!n.parent.empty())
+             if (auto it = nodeIndex_.find(n.parent); it != nodeIndex_.end()) parent = it->second;
++#endif
+         if (parent < order_.size() && dirty_[parent]) dirty_[i] = 1;
+         if (!dirty_[i]) continue;
+         const Xfm& pw = parent < order_.size() ? order_[parent].obj->transformable()->world : n.parentWorld0;
+diff --git a/gd-game-01/engine/src/scene/anim.h b/gd-game-01/engine/src/scene/anim.h
+index c458937..c7d2fd0 100644
+--- a/gd-game-01/engine/src/scene/anim.h
++++ b/gd-game-01/engine/src/scene/anim.h
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-11: PS Vita: parent indices resolved once instead of by name on every transform update.
+ #pragma once
+ 
+ #include <map>
+@@ -63,6 +64,12 @@ private:
+     std::map<std::string, SceneObject*> cache_;
+     std::vector<Node> order_;  // transformables, parents before children
+     std::map<std::string, size_t> nodeIndex_;
++#if defined(__vita__)
++    // PS Vita: order_[i]'s parent index (order_.size(): none), resolved once;
++    // updateTransforms looked it up by name in nodeIndex_ for every node on
++    // every call (several times a frame per scene).
++    std::vector<size_t> vitaParent_;
++#endif
+     std::vector<char> dirty_;
+     std::vector<std::pair<SceneObject*, SceneObject*>> attached_;  // child, parent
+ };

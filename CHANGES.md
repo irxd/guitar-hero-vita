@@ -31,6 +31,7 @@ platforms build exactly as upstream.
 | 2026-11-11 | `0011-vita-index-skeleton.patch` | `gd-game-01/engine/src/scene/character.h`, `gd-game-01/engine/src/scene/character.cpp` | PS Vita: characters blend, pose, update world transforms and run their twist servos through bone arrays built once, instead of string-keyed maps searched and rebuilt every frame (2-9 ms per character on the A9); same arithmetic in the same order, the first 8 poses of each character are checked bit for bit against upstream's code, with a fallback to it |
 | 2026-11-11 | `0012-vita-renderer-phases.patch` | `gd-game-01/engine/src/render/renderer.cpp` | PS Vita: `Renderer::drawMesh` timed as its own nested phase in the gd01.log report |
 | 2026-11-11 | `0013-vita-scene-renderer-caches.patch` | `gd-game-01/engine/src/render/scene_renderer.h`, `gd-game-01/engine/src/render/scene_renderer.cpp` | PS Vita: the scene renderer caches what upstream recomputes with strings on every draw (the mesh + material key, child, bone and light name lookups) by the address of the name string, checked against its text on every hit; only found objects are cached |
+| 2026-11-11 | `0014-vita-anim-parent-index.patch` | `gd-game-01/engine/src/scene/anim.h`, `gd-game-01/engine/src/scene/anim.cpp` | PS Vita: `AnimPlayer` resolves each node's parent index once when it is built; `updateTransforms` looked the parent up by name for every node on every call |
 
 ## New files
 
