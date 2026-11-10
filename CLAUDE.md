@@ -12,8 +12,10 @@ Guitar Hero (PS2, 2005) engine. It loads the player's **own** disc image at run 
   backlog item: **GDALL-024** (not started as of 2026-11-10).
 - Plan, audit findings and status: `docs/port-plan.md`. **Read it before working, and update
   it at the end of each task.**
-- The user plans to contact the upstream maintainer once there is a working spike. Until
-  then, nothing is pushed, posted or opened upstream.
+- The user has commented on the maintainer's thread (2026-11-10). Still, nothing is pushed,
+  posted or opened upstream by an agent unless the user asks for that specific action.
+- `CHANGES.md` must list every patch: add a dated row in the same commit that adds or
+  changes a patch in `patches/`.
 
 ## Hard rules
 
