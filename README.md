@@ -1,11 +1,12 @@
-# gd01 for PS Vita
+# Guitar Hero (PS2) for PS Vita: a Guitar Dream Engine port
 
-A homebrew PS Vita port of **gd-game-01** (the Guitar Hero PS2 reimplementation) from
-Guitar Dream Engine.
+A homebrew PS Vita port of Guitar Dream Engine's reimplementation of **Guitar Hero**
+(PlayStation 2, 2005), the engine's `gd-game-01`.
 
 > Based on Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine
 
-- Not affiliated with or endorsed by the game's publishers or by the Guitar Dream Engine maintainer.
+- Guitar Hero is a trademark of its owners; the name is used only to say which game this
+  reimplements. Not affiliated with or endorsed by them or by the Guitar Dream Engine maintainer.
 - Contains no original game code or assets. To play, rip your own PS2 disc.
 - Licensed under the upstream terms: PolyForm Noncommercial 1.0.0 plus `LICENSE-ADDITIONAL-TERMS.md`.
   The port is non-commercial, and its full source is published with every build.
