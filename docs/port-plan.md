@@ -61,11 +61,18 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
 - [ ] Install the Vita3K emulator. Get `libshacccg.suprx` onto the console and into Vita3K.
 - [x] Hacked Vita ready: FW 3.65 + Ensō (version spoofed to 3.74, cosmetic only). `libshacccg.suprx` is installed in both `ur0:data/` (where vitaShaRK looks) and `ur0:data/external/` (where vitaGL r1488 looks; both checked with `strings` on the libraries).
 - [x] GH1 PS2 disc ripped: `original_isos/Guitar Hero (USA).iso` (2,300,313,600 bytes)
-- [ ] Confirm a native Linux/Windows build of upstream gd01 runs with the user's ISO (baseline, to check the rip). 2026-11-10: `tools/build-desktop.sh` built the unmodified upstream for Linux in WSL (214 steps, only OpenAL third-party warnings), and `tools/run-desktop.sh` launched it through WSLg. It boots with the ISO. Rendering is software (llvmpipe, GL 4.5 Mesa 26.0.8), so it's slow but fine as a reference. Audio goes through PulseAudio. Waiting on the user to confirm menus + one song.
+- [x] Confirm a native Linux build of upstream gd01 runs with the user's ISO. 2026-11-10: `tools/build-desktop.sh` builds the unmodified upstream for Linux in WSL, and `tools/run-desktop.sh` runs it through WSLg. The user confirmed the menus work and a song plays. Rendering is software (llvmpipe, GL 4.5 Mesa 26.0.8), audio goes through PulseAudio.
 
 ### Phase 1: spike, "hello highway" (upstream estimate 1–2 weeks)
-- [ ] `vita/CMakeLists.txt`: build the upstream sources with VitaSDK. No gdcore, no Vulkan, no MIDI.
-- [ ] Get it compiling. Stub what doesn't build, logging each stub.
+- [x] `vita/CMakeLists.txt` builds the **unmodified** upstream sources with VitaSDK (2026-11-10). It produces `gd01.vpk` (2.9 MB) with **0 warnings** and **no upstream patches so far**.
+  - gd-engine-core can't be dropped: `renderer.h` → `core_renderer.h` → `gd/core/render/device.h`, and `app.cpp`/`mixer.cpp` use `gd/core/audio/output.h`. So we build a **reduced gdcore**: `gdcore_render` (device.cpp, spirv_reflect, gl backend; `GDCORE_RENDER_SDLGPU=0 VULKAN=0`) and `gdcore_audio` (output.cpp only, no miniaudio/OpenAL/FAudio backends).
+  - The SPIR-V headers (`core_renderer_spirv.h`, `core_post_fx_hdr_spirv.h`) come from host glslang in the desktop build. They're platform-independent data, so `tools/build-vita.sh` copies them from `/root/build/gd01-linux`. The desktop build must run first.
+  - `vita/compat/dlfcn.h`: `output.cpp` uses `dladdr` only to find the module's folder, so the stub reports failure (no dynamic loader on Vita).
+  - `midi_in.cpp` compiles as its stub (no `GD_RTMIDI_API`). `vk_upscaler_stub.cpp` replaces the Vulkan upscaler, as on Android.
+  - The icons are GDE's own art (`res/gd01_icon*.png`), embedded with upstream's `embed_file.cmake`.
+  - Title ID placeholder: `GDDE00001`.
+- [ ] **vitaGL bring-up (next).** `app.cpp:2511-2633` asks SDL for a GL 3.3 core / GLES 3.0 context (`SDL_GL_SetAttribute`, `SDL_GL_CreateContext`, plus a probe window at :2945). Plan: link-time `-Wl,--wrap=` of `SDL_GL_CreateContext`, `SDL_GL_MakeCurrent`, `SDL_GL_SwapWindow`, `SDL_GL_GetProcAddress`, `SDL_GL_SetSwapInterval`, `SDL_GL_DestroyContext` (and `SDL_CreateWindow` to strip `SDL_WINDOW_OPENGL` if SDL-Vita rejects it). These route to a Vita layer (`vita/src/vita_gl.cpp`) that calls `vglInit`, `vglSwapBuffers` and `vglGetProcAddress`. This needs no upstream patch. **[verify]** that SDL3-Vita doesn't initialise GXM itself when no SDL_Renderer is created.
+- [ ] Logging on device: route `SDL_Log` to a file under `ux0:data/gd01/` (plus the vita-agent-use / psp2-tooling console later).
 - [ ] GL shim: bind gl.cpp's pointers to vitaGL, and rewrite the shaders for the highway / track only
 - [ ] Load the ISO from `ux0:data/gd01/`, load one song chart, draw the highway, play the audio
 - [ ] Run it in Vita3K, then on hardware. Measure fps and RAM.
@@ -101,3 +108,4 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
 ## Log
 - 2026-11-10: Workspace created, upstream cloned and pinned, gd01 audited (this document). Next: Phase 0.
 - 2026-11-10: SVM enabled, Ubuntu on WSL2, VitaSDK 2026.08 + SDL3 + vitaGL installed. Next: a Vita3K install, a desktop baseline build of gd01, then Phase 1 (`vita/CMakeLists.txt`).
+- 2026-11-10: Desktop baseline confirmed by the user. The first Vita VPK builds (0 warnings, no upstream patches). It won't render yet. Next: vitaGL bring-up via `--wrap`, file logging, then the first run on hardware.
