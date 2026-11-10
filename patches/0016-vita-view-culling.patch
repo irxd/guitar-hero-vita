@@ -1,0 +1,140 @@
+diff --git a/gd-game-01/engine/src/render/scene_renderer.cpp b/gd-game-01/engine/src/render/scene_renderer.cpp
+index 72c4e4b..0265696 100644
+--- a/gd-game-01/engine/src/render/scene_renderer.cpp
++++ b/gd-game-01/engine/src/render/scene_renderer.cpp
+@@ -1,11 +1,17 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-11: PS Vita: name lookups, mesh keys and light lists cached per draw source (no per-draw string work).
++// Modified by irxd on 2026-11-11: PS Vita: meshes outside the view (by a bounding sphere of their vertices) are not drawn.
+ #include "render/scene_renderer.h"
+ 
+ #include "render/gl.h"
+ #include "scene/particles.h"
+ #include "render/image_enhance.h"
++#if defined(__vita__)
++#include "vita_profile.h"  // the Vita port's vita/src: culled draw count
++
++#include <cstdlib>
++#endif
+ 
+ #include <SDL3/SDL.h>
+ 
+@@ -98,7 +104,13 @@ const SceneRenderer::DrawMesh* SceneRenderer::build(const std::string& name, con
+         if (c.mesh && c.geom && (c.geom->revision != c.revision || rows)) {  // a MeshAnim moved the vertices, a MatAnim the UV rows
+             c.revision = c.geom->revision;
+             if (rows) std::copy_n(c.stage->xfm.begin(), 9, c.bakedRows.begin());
++#if defined(__vita__)
++            std::vector<Vertex> verts = vertices(c);
++            vitaBound(c, verts);
++            renderer_.updateMesh(c.mesh, verts, c.indices);
++#else
+             renderer_.updateMesh(c.mesh, vertices(c), c.indices);
++#endif
+         }
+         return c.mesh ? &c : nullptr;
+     }
+@@ -157,6 +169,9 @@ const SceneRenderer::DrawMesh* SceneRenderer::build(const std::string& name, con
+     for (const auto& f : geom->faces)
+         if (f[0] < verts.size() && f[1] < verts.size() && f[2] < verts.size()) idx.insert(idx.end(), {f[0], f[1], f[2]});
+     dm.mesh = renderer_.createMesh(verts, idx);
++#if defined(__vita__)
++    vitaBound(dm, verts);
++#endif
+     if (dm.mat)
+         for (size_t i = 1; i < dm.mat->stages.size(); ++i) {
+             const MatStage& st = dm.mat->stages[i];
+@@ -420,6 +435,48 @@ const SceneObject* SceneRenderer::vitaFind(const std::string& name) {
+     if (o) vitaFind_[&name] = {name, o, false};
+     return o;
+ }
++
++// The sphere around the vertices' box: never smaller than the mesh.
++void SceneRenderer::vitaBound(DrawMesh& dm, const std::vector<Vertex>& verts) {
++    dm.vitaSphere[3] = -1;
++    if (verts.empty()) return;
++    float lo[3] = {verts[0].x, verts[0].y, verts[0].z}, hi[3] = {lo[0], lo[1], lo[2]};
++    for (const Vertex& v : verts) {
++        const float p[3] = {v.x, v.y, v.z};
++        for (int k = 0; k < 3; ++k) lo[k] = std::min(lo[k], p[k]), hi[k] = std::max(hi[k], p[k]);
++    }
++    float c[3], r2 = 0;
++    for (int k = 0; k < 3; ++k) c[k] = (lo[k] + hi[k]) * 0.5f;
++    for (const Vertex& v : verts) {
++        const float d[3] = {v.x - c[0], v.y - c[1], v.z - c[2]};
++        r2 = std::max(r2, d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
++    }
++    if (!std::isfinite(r2)) return;
++    for (int k = 0; k < 3; ++k) dm.vitaSphere[k] = c[k];
++    dm.vitaSphere[3] = std::sqrt(r2) * 1.001f + 1e-4f;  // rounding margin
++}
++
++// The sphere is wholly outside one of the six clip planes, each taken from
++// the mesh's own MVP (so in mesh space: exact for any scale or mirroring).
++bool SceneRenderer::vitaOutside(const DrawMesh& dm, const Mat4& mvp) {
++    static const bool enabled = [] {
++        const char* v = std::getenv("GD01_VITA_CULL");  // args.txt variables are set after SDL copied the environment
++        return !(v && v[0] == '0');
++    }();
++    const float* s = dm.vitaSphere;
++    if (!enabled || s[3] < 0) return false;
++    float row[4][4];  // clip = row . (x, y, z, 1)
++    for (int i = 0; i < 4; ++i)
++        for (int j = 0; j < 4; ++j) row[i][j] = mvp.at(i, j);
++    for (int axis = 0; axis < 3; ++axis)
++        for (float sign : {1.0f, -1.0f}) {
++            float p[4];
++            for (int j = 0; j < 4; ++j) p[j] = row[3][j] + sign * row[axis][j];
++            const float n = std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
++            if (p[0] * s[0] + p[1] * s[1] + p[2] * s[2] + p[3] < -s[3] * n) return true;
++        }
++    return false;
++}
+ #endif
+ 
+ void SceneRenderer::drawObject(const SceneObject& o, const Mat4& viewProj, const Mat4& model, int depth) {
+@@ -462,6 +519,15 @@ void SceneRenderer::drawObject(const SceneObject& o, const Mat4& viewProj, const
+             w = model * Mat4::fromRowXfm(b.rot, b.pos);
+         }
+         Mat4 mvp = viewProj * w;
++#if defined(__vita__)
++        // PS Vita: not drawn when outside the view (skinned meshes move with
++        // their bones and are always drawn); the children still are.
++        if (!dm->skin && vitaOutside(*dm, mvp)) {
++            vita::countCulledDraw();
++            drawChildren(o.mesh->draw, viewProj, model, depth);
++            return;
++        }
++#endif
+         Renderer::RenderState st = liveState(*dm);
+         st.lighting = lightingFor(dm->mat);
+         setMatFlags(st, dm->mat);
+diff --git a/gd-game-01/engine/src/render/scene_renderer.h b/gd-game-01/engine/src/render/scene_renderer.h
+index 22a0fd9..e0aa658 100644
+--- a/gd-game-01/engine/src/render/scene_renderer.h
++++ b/gd-game-01/engine/src/render/scene_renderer.h
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-11: PS Vita: name lookups, mesh keys and light lists cached per draw source (no per-draw string work).
++// Modified by irxd on 2026-11-11: PS Vita: meshes outside the view (by a bounding sphere of their vertices) are not drawn.
+ #pragma once
+ 
+ #include <array>
+@@ -102,7 +103,16 @@ private:
+             float bakedUv[2] = {0, 0};
+         };
+         std::vector<Pass> passes;
++#if defined(__vita__)
++        // PS Vita: bounding sphere of the vertices (mesh space; radius < 0:
++        // none, always drawn), for the view test in drawObject.
++        float vitaSphere[4] = {0, 0, 0, -1};
++#endif
+     };
++#if defined(__vita__)
++    static void vitaBound(DrawMesh& dm, const std::vector<Vertex>& verts);
++    static bool vitaOutside(const DrawMesh& dm, const Mat4& mvp);
++#endif
+     // Per-vertex texgen state (Environ / Sphere) for a stage drawn at `world`.
+     void texgen(Renderer::RenderState& st, const MatStage& s) const;
+     // The later passes of a material after pass 0 (`base` = pass 0's state).

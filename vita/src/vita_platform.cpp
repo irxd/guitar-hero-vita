@@ -88,7 +88,7 @@ uint64_t gPaletteSavedBytes = 0, gRgbaBytes = 0;
 constexpr bool kFrameStats = true;
 constexpr uint64_t kFrameStatsNs = 5'000'000'000ull;
 struct FrameStats {
-    uint64_t frames = 0, cpuNs = 0, swapNs = 0, draws = 0, bufferBytes = 0;
+    uint64_t frames = 0, cpuNs = 0, swapNs = 0, draws = 0, bufferBytes = 0, culled = 0;
 };
 FrameStats gFrame;
 uint64_t gFrameStatsStart = 0, gLastSwapEnd = 0;
@@ -225,9 +225,9 @@ void frameStatsSwap(uint64_t swapStart, uint64_t swapEnd) {
     }
     if (swapEnd - gFrameStatsStart < kFrameStatsNs) return;
     const double seconds = double(swapEnd - gFrameStatsStart) / 1e9, f = double(gFrame.frames);
-    SDL_Log("vita: perf: %.1f fps; per frame: cpu %.1f ms, swap wait %.1f ms, %.0f draws, %.0f KB buffer uploads",
+    SDL_Log("vita: perf: %.1f fps; per frame: cpu %.1f ms, swap wait %.1f ms, %.0f draws (%.0f culled), %.0f KB buffer uploads",
             f / seconds, double(gFrame.cpuNs) / 1e6 / f, double(gFrame.swapNs) / 1e6 / f, double(gFrame.draws) / f,
-            double(gFrame.bufferBytes) / 1024.0 / f);
+            double(gFrame.culled) / f, double(gFrame.bufferBytes) / 1024.0 / f);
     if (gPhaseLevel > 0) reportPhases(f);
     gFrame = {};
     gFrameStatsStart = swapEnd;
@@ -654,6 +654,8 @@ void setSwapInterval(int vblanks) {
     SDL_Log("vita: display paced at %d vblank(s) a frame (%s)", vblanks,
             vblanks == 2 ? "30 fps" : vblanks == 1 ? "up to 60 fps" : "no vertical sync");
 }
+
+void countCulledDraw() { ++gFrame.culled; }
 
 void profilePhase(const char* name) {
     if (kFrameStats && gPhaseLevel >= 1) switchPhase(name, SDL_GetTicksNS());

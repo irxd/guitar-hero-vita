@@ -24,4 +24,8 @@ void profilePhase(const char* name);
 void profilePush(const char* name);
 void profilePop();
 
+// A mesh the scene renderer skipped as outside the view (perf line: culled
+// per frame).
+void countCulledDraw();
+
 }  // namespace vita

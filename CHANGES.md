@@ -33,6 +33,8 @@ platforms build exactly as upstream.
 | 2026-11-11 | `0013-vita-scene-renderer-caches.patch` | `gd-game-01/engine/src/render/scene_renderer.h`, `gd-game-01/engine/src/render/scene_renderer.cpp` | PS Vita: the scene renderer caches what upstream recomputes with strings on every draw (the mesh + material key, child, bone and light name lookups) by the address of the name string, checked against its text on every hit; only found objects are cached |
 | 2026-11-11 | `0014-vita-anim-parent-index.patch` | `gd-game-01/engine/src/scene/anim.h`, `gd-game-01/engine/src/scene/anim.cpp` | PS Vita: `AnimPlayer` resolves each node's parent index once when it is built; `updateTransforms` looked the parent up by name for every node on every call |
 | 2026-11-11 | `0015-vita-frame-cap.patch` | `gd-game-01/engine/src/app.cpp`, `gd-game-01/engine/src/render/renderer.cpp`, `gd-game-01/engine/src/ui/select_panels.cpp` | PS Vita: Max FPS offers 30 (the new Vita default, steady), 60 and Unlimited; `Renderer::setFrameCap` sets vitaGL's vblank interval (2, 1 or 0) instead of pacing with a timer (`vita/src/vita_display.h`) |
+| 2026-11-11 | `0016-vita-view-culling.patch` | `gd-game-01/engine/src/render/scene_renderer.h`, `gd-game-01/engine/src/render/scene_renderer.cpp` | PS Vita: a non-skinned mesh whose bounding sphere (computed from its vertices, recomputed when a mesh animation moves them) is wholly outside the view is not drawn; its children still are. `GD01_VITA_CULL=0` turns it off |
+| 2026-11-11 | `0017-vita-camera-seed.patch` | `gd-game-01/engine/src/game/venue_camera.cpp` | PS Vita: `GD01_VITA_SEED` seeds the venue camera's shot choice, for repeatable benchmark runs (unset: random as upstream) |
 
 ## New files
 
