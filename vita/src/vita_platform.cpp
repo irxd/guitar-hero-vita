@@ -75,6 +75,66 @@ Standin gStandins[] = {
     {"glGetQueryObjectui64v", reinterpret_cast<SDL_FunctionPointer>(standinGetQueryObjectui64v), false},
 };
 
+// --- Shader tracing (bring-up aid) ----------------------------------------
+// Logs every compile/link with its result and the free memory, and saves
+// each shader's final source (after gl.cpp's GLES rewrite) to
+// ux0:data/gd01/shaders/<id>.glsl, so a crash or failure points at one
+// shader. Turn off once the shaders are known to work on vitaGL.
+constexpr bool kTraceShaders = true;
+constexpr const char* kShaderDir = "ux0:data/gd01/shaders";
+
+using ShaderSourceFn = void (*)(GLuint, GLsizei, const GLchar* const*, const GLint*);
+using CompileShaderFn = void (*)(GLuint);
+using LinkProgramFn = void (*)(GLuint);
+ShaderSourceFn realShaderSource = nullptr;
+CompileShaderFn realCompileShader = nullptr;
+LinkProgramFn realLinkProgram = nullptr;
+
+void logMemory(const char* when) {
+    SDL_Log("vita:   [%s] free VRAM %u KB, RAM %u KB, phycont %u KB, newlib %u KB", when,
+            unsigned(vglMemFree(VGL_MEM_VRAM) >> 10), unsigned(vglMemFree(VGL_MEM_RAM) >> 10),
+            unsigned(vglMemFree(VGL_MEM_PHYCONT) >> 10), unsigned(vglMemFree(VGL_MEM_EXTERNAL) >> 10));
+}
+
+void traceShaderSource(GLuint shader, GLsizei count, const GLchar* const* strings, const GLint* lengths) {
+    size_t total = 0;
+    char path[128];
+    SDL_snprintf(path, sizeof path, "%s/%u.glsl", kShaderDir, shader);
+    if (SDL_IOStream* out = SDL_IOFromFile(path, "wb")) {
+        for (GLsizei i = 0; i < count; ++i) {
+            const size_t n = lengths && lengths[i] >= 0 ? size_t(lengths[i]) : std::strlen(strings[i]);
+            SDL_WriteIO(out, strings[i], n);
+            total += n;
+        }
+        SDL_CloseIO(out);
+    }
+    SDL_Log("vita: glShaderSource shader %u: %u bytes -> %s", shader, unsigned(total), path);
+    realShaderSource(shader, count, strings, lengths);
+}
+
+void traceCompileShader(GLuint shader) {
+    SDL_Log("vita: glCompileShader shader %u ...", shader);
+    logMemory("before");
+    realCompileShader(shader);
+    GLint ok = 0;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
+    SDL_Log("vita: glCompileShader shader %u: %s", shader, ok ? "ok" : "FAILED");
+    if (!ok) {
+        char info[1024] = {};
+        glGetShaderInfoLog(shader, sizeof info - 1, nullptr, info);
+        SDL_Log("vita:   info log: %s", info);
+    }
+}
+
+void traceLinkProgram(GLuint program) {
+    SDL_Log("vita: glLinkProgram program %u ...", program);
+    realLinkProgram(program);
+    GLint ok = 0;
+    glGetProgramiv(program, GL_LINK_STATUS, &ok);
+    SDL_Log("vita: glLinkProgram program %u: %s", program, ok ? "ok" : "FAILED");
+    logMemory("after link");
+}
+
 void initVitaGl() {
     if (gVglReady) return;
     SDL_Log("vita: vglInitExtended(%dx%d, RAM threshold %d MB)", kScreenWidth, kScreenHeight, kVglRamThreshold >> 20);
@@ -140,7 +200,25 @@ SDL_FunctionPointer __wrap_SDL_GL_GetProcAddress(const char* name) {
         }
     }
     auto fn = reinterpret_cast<SDL_FunctionPointer>(vglGetProcAddress(name));
-    if (!fn) SDL_Log("vita: GL %s is missing from vitaGL", name);
+    if (!fn) {
+        SDL_Log("vita: GL %s is missing from vitaGL", name);
+        return fn;
+    }
+    if (kTraceShaders) {
+        if (std::strcmp(name, "glShaderSource") == 0) {
+            realShaderSource = reinterpret_cast<ShaderSourceFn>(fn);
+            sceIoMkdir(kShaderDir, 0777);
+            return reinterpret_cast<SDL_FunctionPointer>(traceShaderSource);
+        }
+        if (std::strcmp(name, "glCompileShader") == 0) {
+            realCompileShader = reinterpret_cast<CompileShaderFn>(fn);
+            return reinterpret_cast<SDL_FunctionPointer>(traceCompileShader);
+        }
+        if (std::strcmp(name, "glLinkProgram") == 0) {
+            realLinkProgram = reinterpret_cast<LinkProgramFn>(fn);
+            return reinterpret_cast<SDL_FunctionPointer>(traceLinkProgram);
+        }
+    }
     return fn;
 }
 
