@@ -136,6 +136,85 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
 - [ ] `CHANGES.md`, a VPK build script, GitHub release with source
 - [ ] Contact the maintainer, offer the `patches/`, list on VitaDB if they agree
 
+## Performance plan (added 2026-11-10)
+
+The game is CPU-bound (run 8: 80-110 ms CPU per frame in a song, swap wait ≈ 0.1-6 ms).
+Ideas below come partly from the community notes in
+[Yannis100/vita-port-skill](https://github.com/Yannis100/vita-port-skill) (MIT; reviewed,
+not installed). Each step is measured on hardware with `tools/vita-loop.sh` before and after,
+one change at a time; numbers carry units and conditions (song, scene, seconds into it).
+
+1. **Measure where the CPU time goes** before optimizing. Either phase timers (a Vita-only
+   patch stamping update / venue + characters / crowd / draw submission per frame, logged
+   with `vita: perf`), or a sampling profile (psp2-tooling, see below). Bound each phase
+   against the whole frame.
+2. **vitaGL built from source** instead of the vdpm package: `NO_DEBUG=1` first (drops
+   per-call error checks), then `HAVE_SHADER_CACHE=1` (first-use shader stutter). Then the
+   speed hacks **one at a time**, since each can break rendering: `DRAW_SPEEDHACK`,
+   `INDICES_SPEEDHACK`, `CIRCULAR_POOL_SPEEDHACK` (`READBACKS_SPEEDHACK` last). vitaGL is
+   LGPL-3.0: the shipped source must say how to rebuild it. **[verify]** the flag names
+   against the vitaGL revision we pin.
+3. **Thread placement:** main/render thread on core 0, movie worker on core 1, audio on
+   core 1 or 2 (`sceKernelChangeThreadCpuAffinityMask`), game-thread priorities in 64..127.
+   Cheap. It mainly helps the movie and keeps audio off the render core.
+4. **Fewer GL calls per draw:** 300-700 draws per frame through vitaGL's state tracking.
+   Look at redundant `glUseProgram` / uniform / bind calls (count them with the existing
+   hooks), and at batching static venue meshes.
+5. **GL on its own thread** (larger job): record GL calls on the game thread and replay them
+   on core 2 through a lock-free ring (KOTOR II port: ~4.5 ms capture per frame vs ~8 ms
+   direct). Shared state aligned to 64-byte cache lines. Only if step 1 shows GL submission
+   is a large share.
+6. **Steady frame pacing:** if a song reaches a steady 30 FPS, cap it at 30 with each frame
+   spanning two vblanks (vsync on) instead of an uneven 30-45.
+7. **I/O:** GameData reads with seek + fread on one shared handle; `sceIoPread` and cached
+   archive reads cut seek cost on the memory card (~10 MB/s).
+8. **Precision:** `vglUseLowPrecision` (half floats in shaders) only if we turn out
+   GPU-bound; check for visual damage.
+9. **Shaders, if GPU-bound later:** no `if` / `?:` in the hot path (step/mix instead), and
+   the vertex lighting loop over 8 lights is the first candidate.
+
+vitaGL pitfalls to remember:
+- `glDrawArrays` over 49152 vertices silently draws garbage: split such draws.
+- Fragment shaders get 16 uniform vec4s, vertex shaders 128.
+- Don't call `glPixelStorei(GL_UNPACK_ALIGNMENT)`: only `GL_UNPACK_ROW_LENGTH` is
+  supported, and any other name leaves a sticky `GL_INVALID_ENUM` that shows up on the next
+  upload.
+- Vita3K timings are not usable for performance; it is fine for "boots and renders".
+
+## Hardware loop (build → deploy → run → collect)
+
+`tools/vita-loop.sh` drives a retail Vita over Wi-Fi through **vitacompanion 1.08**
+(devnoname120, MIT):
+- FTP on port 1337 replaces `ux0:app/GDDE00001/eboot.bin`.
+- Commands on port 1338: `quit GDDE00001`, `nosleep on`, `launch GDDE00001`, and optional
+  input such as `press cross; wait 100ms; release cross`.
+- After the run it pulls `gd01.log` / `memory.log` and any new `psp2core-*.psp2dmp`, decodes
+  the dumps with `tools/parse-core.sh` against the matching ELF, and writes a perf/memory
+  summary to `agents/scratch/runs/<timestamp>/`.
+
+One-time Vita setup (the user does this):
+- Copy `vitacompanion_kernel.skprx` and `vitacompanion.suprx` to `ur0:tai/`.
+- Add both to `ur0:tai/config.txt`, the kernel module under `*KERNEL` and the user module
+  under `*main`, then reboot.
+- Install gd01 once from the VPK. Reinstall the VPK whenever `param.sfo` or LiveArea changes;
+  the loop only swaps `eboot.bin`.
+
+Usage: `wsl -d Ubuntu -u root -- env VITA_IP=<ip> bash /mnt/d/Personal/guitar-hero-vita/tools/vita-loop.sh --build --wait 90 --input 'press cross; wait 100ms; release cross'`.
+`--cmd version` checks the connection.
+
+Alternatives:
+- **vita-agent-use** (shoui520, GPL-3.0, firmware 3.65 only; matches ours).
+  - Adds screenshots, VPK install, CPU/FPS/memory metrics, and "deploy, run until a log line
+    or crash" in one command, through a paired TLS client.
+  - It lists vitacompanion as **incompatible**: load one or the other, not both.
+  - Worth switching to once we need screenshots in the loop.
+- **psp2-tooling** (Grarak, GPL-3.0): per-core CPU sampling profiles (to `perf.data` /
+  hotspot) and Razor GPU captures.
+  - Needs decrypted **DevKit 3.65 `os0:kd` modules**, which the user must obtain themselves.
+  - Those modules are never fetched by an agent and never committed. Its retail-cp mode is
+    tested only on a PCH-2000.
+  - Optional. Phase timers (performance step 1) give most of the answer without it.
+
 ## Vita-only deviations (keep this list current)
 - No Vulkan upscalers (FSR/DLSS), no HDR, no MIDI input, no launcher
 - Post-FX off by default
@@ -151,3 +230,4 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
 - 2026-11-10: Workspace created, upstream cloned and pinned, gd01 audited (this document). Next: Phase 0.
 - 2026-11-10: SVM enabled, Ubuntu on WSL2, VitaSDK 2026.08 + SDL3 + vitaGL installed. Next: a Vita3K install, a desktop baseline build of gd01, then Phase 1 (`vita/CMakeLists.txt`).
 - 2026-11-10: Desktop baseline confirmed by the user. The first Vita VPK builds (0 warnings, no upstream patches). It won't render yet. Next: vitaGL bring-up via `--wrap`, file logging, then the first run on hardware.
+- 2026-11-10: Performance plan and hardware loop added (`tools/vita-loop.sh`, vitacompanion over Wi-Fi). Next: the user sets up vitacompanion, then the movie-worker build is tested through the loop.

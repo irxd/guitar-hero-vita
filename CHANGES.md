@@ -36,7 +36,7 @@ platforms build exactly as upstream.
 | 2026-11-10 | `vita/src/movie_worker.cpp`, `vita/src/movie_worker.h` | Movie decoding thread used by patch 0006 |
 | 2026-11-10 | `vita/compat/dlfcn.h` | Stub dynamic-loader header (the Vita has none) |
 | 2026-11-10 | `vita/tests/` | Desktop checks for the shader rewrite and the palette packing |
-| 2026-11-10 | `tools/` | Toolchain setup, desktop and Vita builds, patch stack, shader dump and validation, GPU memory probe, crash dump decoding |
+| 2026-11-10 | `tools/` | Toolchain setup, desktop and Vita builds, patch stack, shader dump and validation, GPU memory probe, crash dump decoding, movie decode benchmark, hardware build/deploy/run loop (`vita-loop.sh`) |
 | 2026-11-10 | `README.md`, `CLAUDE.md`, `docs/port-plan.md` | Project documentation |
 
 ## Vita-only differences in behaviour
