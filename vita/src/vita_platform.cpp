@@ -633,6 +633,24 @@ void profilePhase(const char* name) {
     if (kFrameStats) switchPhase(name, SDL_GetTicksNS());
 }
 
+namespace {
+const char* gPhaseStack[8];
+int gPhaseDepth = 0;
+}  // namespace
+
+void profilePush(const char* name) {
+    if (!kFrameStats) return;
+    if (gPhaseDepth < 8) gPhaseStack[gPhaseDepth] = gPhase >= 0 ? gPhases[gPhase].name : nullptr;
+    ++gPhaseDepth;
+    switchPhase(name, SDL_GetTicksNS());
+}
+
+void profilePop() {
+    if (!kFrameStats || gPhaseDepth == 0) return;
+    --gPhaseDepth;
+    switchPhase(gPhaseDepth < 8 ? gPhaseStack[gPhaseDepth] : nullptr, SDL_GetTicksNS());
+}
+
 }  // namespace vita
 
 extern "C" {

@@ -15,4 +15,9 @@ namespace vita {
 
 void profilePhase(const char* name);
 
+// A nested phase: push switches to `name`, pop returns to the phase that was
+// current at the push (for a function called from several phases).
+void profilePush(const char* name);
+void profilePop();
+
 }  // namespace vita

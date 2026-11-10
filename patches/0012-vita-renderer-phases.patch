@@ -1,0 +1,28 @@
+diff --git a/gd-game-01/engine/src/render/renderer.cpp b/gd-game-01/engine/src/render/renderer.cpp
+index b3a389f..0861043 100644
+--- a/gd-game-01/engine/src/render/renderer.cpp
++++ b/gd-game-01/engine/src/render/renderer.cpp
+@@ -1,6 +1,10 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-11: PS Vita: frame phase timing of drawMesh (diagnostic).
+ #include "render/renderer.h"
++#if defined(__vita__)
++#include "vita_profile.h"  // the Vita port's vita/src: frame phase timing
++#endif
+ 
+ #include <algorithm>
+ #include <cmath>
+@@ -962,6 +966,12 @@ void Renderer::updateMesh(int mesh, const std::vector<Vertex>& vertices, const s
+ void Renderer::drawMesh(int mesh, const float* mvp, const RenderState& st) {
+     if (core_) return core_->drawMesh(mesh, mvp, st);
+     if (mesh <= 0 || meshes_[mesh].count == 0) return;
++#if defined(__vita__)
++    vita::profilePush("renderer: draw mesh");
++    struct PopAtExit {
++        ~PopAtExit() { vita::profilePop(); }
++    } popAtExit;
++#endif
+     applyState(st.texture, st.blend, st.depthTest, st.depthWrite, mvp);
+     gl::glUniform1f(uCutout_, st.alphaCutout ? 0.5f : -1.0f);
+     gl::glUniform2f(uUvOffset_, st.uvOffset[0], st.uvOffset[1]);
