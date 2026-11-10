@@ -23,8 +23,13 @@
 
 #include <SDL3/SDL.h>
 
+#include <malloc.h>
+#include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
+#include <psp2/kernel/clib.h>
 #include <psp2/power.h>
+
+#include <cstdarg>
 
 #include <cstdint>
 #include <cstdlib>
@@ -38,9 +43,11 @@
 
 // newlib heap for the game's own allocations. vitaGL takes its memory from
 // separate pools (CDRAM first, then RAM above the threshold set at init).
-// [verify] tune against the 300 MB budget once the venue loads on hardware.
+// 192 MB ran out in the quick play character preview (hardware,
+// 2026-11-10); 256 MB with extended memory mode (ATTRIBUTE2=12 in the SFO,
+// vita/CMakeLists.txt). [verify] tune with the memory reports in gd01.log.
 extern "C" {
-int _newlib_heap_size_user = 192 * 1024 * 1024;
+int _newlib_heap_size_user = 256 * 1024 * 1024;
 }
 
 namespace {
@@ -52,6 +59,45 @@ constexpr int kVglRamThreshold = 16 * 1024 * 1024;
 
 bool gVglReady = false;
 int gContextToken = 0;  // its address is the one SDL_GLContext handed out
+
+// --- Memory diagnostics --------------------------------------------------
+// A failed allocation is written to memory.log with its size. Nothing on
+// that path allocates (fixed buffer, sceClib, sceIo), so it works when the
+// heap is exhausted. It is a separate file: main.cpp's log FILE has its own
+// write position and would overwrite lines appended behind its back.
+constexpr const char* kMemoryLogPath = "ux0:data/gd01/memory.log";
+constexpr uint64_t kMemoryReportNs = 10'000'000'000ull;  // gd01.log report every 10 s
+uint64_t gNextMemoryReport = 0;
+size_t gPeakHeapUsed = 0;
+
+void rawLog(const char* path, const char* fmt, ...) {
+    char line[256];
+    va_list args;
+    va_start(args, fmt);
+    int n = sceClibVsnprintf(line, sizeof line - 1, fmt, args);
+    va_end(args);
+    if (n < 0) return;
+    if (n > int(sizeof line) - 2) n = int(sizeof line) - 2;
+    line[n++] = '\n';
+    SceUID fd = sceIoOpen(path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0666);
+    if (fd < 0) return;
+    sceIoWrite(fd, line, SceSize(n));
+    sceIoClose(fd);
+}
+
+void logAllocFailure(const char* what, size_t size) {
+    const struct mallinfo mi = mallinfo();
+    rawLog(kMemoryLogPath, "%s(%u) FAILED: heap in use %u KB, arena %u KB, heap size %u KB", what, unsigned(size),
+           unsigned(mi.uordblks >> 10), unsigned(mi.arena >> 10), unsigned(_newlib_heap_size_user >> 10));
+}
+
+void reportMemory(const char* when) {
+    const struct mallinfo mi = mallinfo();
+    if (size_t(mi.uordblks) > gPeakHeapUsed) gPeakHeapUsed = size_t(mi.uordblks);
+    SDL_Log("vita: memory [%s]: heap %u / %u MB (peak %u MB); vitaGL free VRAM %u MB, RAM %u MB", when,
+            unsigned(mi.uordblks >> 20), unsigned(_newlib_heap_size_user >> 20), unsigned(gPeakHeapUsed >> 20),
+            unsigned(vglMemFree(VGL_MEM_VRAM) >> 20), unsigned(vglMemFree(VGL_MEM_RAM) >> 20));
+}
 
 // --- Stand-ins for GL functions vitaGL does not have ---------------------
 // Fence sync objects: vitaGL has none. glFinish makes "signalled" true.
@@ -210,6 +256,7 @@ void initVitaGl() {
 
 __attribute__((constructor)) void vitaEarlyInit() {
     sceIoMkdir("ux0:data/gd01", 0777);
+    sceIoRemove(kMemoryLogPath);  // one run per file, like gd01.log
     setenv("GD01_LOG", kLogPath, 0);  // main.cpp opens it before anything logs
     scePowerSetArmClockFrequency(444);
     scePowerSetBusClockFrequency(222);
@@ -244,7 +291,41 @@ bool __wrap_SDL_GL_MakeCurrent(SDL_Window* /*window*/, SDL_GLContext /*context*/
 
 bool __wrap_SDL_GL_SwapWindow(SDL_Window* /*window*/) {
     vglSwapBuffers(GL_FALSE);
+    const uint64_t now = SDL_GetTicksNS();
+    if (now >= gNextMemoryReport) {
+        reportMemory(gNextMemoryReport == 0 ? "first frame" : "periodic");
+        gNextMemoryReport = now + kMemoryReportNs;
+    }
     return true;
+}
+
+void* __real_malloc(size_t size);
+void* __real_calloc(size_t count, size_t size);
+void* __real_realloc(void* ptr, size_t size);
+void* __real_memalign(size_t alignment, size_t size);
+
+void* __wrap_malloc(size_t size) {
+    void* p = __real_malloc(size);
+    if (!p && size) logAllocFailure("malloc", size);
+    return p;
+}
+
+void* __wrap_calloc(size_t count, size_t size) {
+    void* p = __real_calloc(count, size);
+    if (!p && count && size) logAllocFailure("calloc", count * size);
+    return p;
+}
+
+void* __wrap_realloc(void* ptr, size_t size) {
+    void* p = __real_realloc(ptr, size);
+    if (!p && size) logAllocFailure("realloc", size);
+    return p;
+}
+
+void* __wrap_memalign(size_t alignment, size_t size) {
+    void* p = __real_memalign(alignment, size);
+    if (!p && size) logAllocFailure("memalign", size);
+    return p;
 }
 
 bool __wrap_SDL_GL_SetSwapInterval(int interval) {

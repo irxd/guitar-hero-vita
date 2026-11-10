@@ -109,6 +109,15 @@ foreach(file symbol IN ZIP_LISTS GD01_ICON_FILES GD01_ICON_SYMBOLS)
   target_sources(gd01 PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/${file}_data.cpp)
 endforeach()
 
+# Extended memory mode (ATTRIBUTE2=12): about 100 MB more main RAM for the
+# app, the standard setting of large Vita homebrew ports. The quick play
+# character preview ran out of the default budget (hardware, 2026-11-10).
+set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
+# Allocation failures (src/vita_platform.cpp logs them with their size).
+foreach(sym malloc calloc realloc memalign)
+  target_link_options(gd01 PRIVATE "-Wl,--wrap=${sym}")
+endforeach()
+
 vita_create_self(eboot.bin gd01 UNSAFE)
 vita_create_vpk(gd01.vpk ${VITA_TITLEID} eboot.bin
   VERSION ${VITA_VERSION}
