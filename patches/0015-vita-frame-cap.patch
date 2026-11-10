@@ -1,0 +1,96 @@
+diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
+index 4f53469..5777067 100644
+--- a/gd-game-01/engine/src/app.cpp
++++ b/gd-game-01/engine/src/app.cpp
+@@ -5,6 +5,7 @@
+ // Modified by irxd on 2026-11-10: PS Vita: free the old venue before loading the next (startSong).
+ // Modified by irxd on 2026-11-10: PS Vita: movies decoded on a worker thread (startMovie, movieFrame, endMovie).
+ // Modified by irxd on 2026-11-10: PS Vita: frame phase timing marks for gd01.log (frame).
++// Modified by irxd on 2026-11-11: PS Vita: Max FPS 30 (default, steady) or 60, paced by vitaGL's vblank interval.
+ #include "app.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -168,7 +169,9 @@ std::map<std::string, Json> profileValues(bool deck) {
+     // depth of field (its blur targets are the next biggest). Touch stays
+     // off: the hands rest on the screen edges, and the buttons cover it all.
+     (void)deck;
+-    for (auto& [k, v] : std::map<std::string, Json>{{"screen_mode", t("fullscreen")}, {"max_fps", t("60")}, {"internal_res", t("448")},
++    // Max FPS 30: busy song shots take 20-30 ms a frame (hardware,
++    // 2026-11-11), so 30 is steady where 60 would swing between 35 and 48.
++    for (auto& [k, v] : std::map<std::string, Json>{{"screen_mode", t("fullscreen")}, {"max_fps", t("30")}, {"internal_res", t("448")},
+                                                     {"bokeh", t("none")}})
+         d[k] = v;
+ #else
+@@ -219,7 +222,11 @@ const std::map<std::string, Json>& enhancedDefaults() {
+ const std::map<std::string, std::set<std::string>>& enhancedChoices() {
+     static const std::map<std::string, std::set<std::string>> c = {
+         {"screen_mode", {"windowed", "fullscreen", "borderless"}},
++#if defined(__vita__)
++        {"max_fps", {"30", "60", "unlimited"}},  // PS Vita: a 60 Hz screen
++#else
+         {"max_fps", {"60", "120", "144", "240", "unlimited"}},
++#endif
+         {"internal_res", {"448", "480", "720", "800", "900", "1080", "1440", "2160"}},
+         {"antialiasing", {"none", "fxaa", "ssaa", "taa"}},
+         {"ai_upscaling", {"none", "fsr1", "fsr31", "dlss4", "dlss5"}},  // a saved "fsr4" (removed) loads as none
+diff --git a/gd-game-01/engine/src/render/renderer.cpp b/gd-game-01/engine/src/render/renderer.cpp
+index 0861043..db05ad9 100644
+--- a/gd-game-01/engine/src/render/renderer.cpp
++++ b/gd-game-01/engine/src/render/renderer.cpp
+@@ -1,8 +1,10 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-11: PS Vita: frame phase timing of drawMesh (diagnostic).
++// Modified by irxd on 2026-11-11: PS Vita: Max FPS 30 (default, steady) or 60, paced by vitaGL's vblank interval.
+ #include "render/renderer.h"
+ #if defined(__vita__)
++#include "vita_display.h"  // the Vita port's vita/src: vblank interval
+ #include "vita_profile.h"  // the Vita port's vita/src: frame phase timing
+ #endif
+ 
+@@ -398,6 +400,14 @@ void Renderer::createFontTexture() {
+ // Headless drivers are not paced.
+ void Renderer::setFrameCap(int fps) {
+     if (core_) return core_->setFrameCap(fps);
++#if defined(__vita__)
++    // PS Vita: the 60 Hz screen's own pacing, no timer: 30 shows each frame
++    // for two refreshes (steady when frames take 17-33 ms, as in songs), 60
++    // for one; Unlimited (benchmarks) drops vertical sync.
++    vita::setSwapInterval(fps <= 0 ? 0 : fps <= 30 ? 2 : 1);
++    paceNs_ = 0, nextFrameNs_ = 0;
++    return;
++#endif
+     if (fps <= 0) {  // Enhanced > Max FPS "Unlimited": no vsync, no pacing
+         SDL_GL_SetSwapInterval(0);
+         paceNs_ = 0, nextFrameNs_ = 0;
+diff --git a/gd-game-01/engine/src/ui/select_panels.cpp b/gd-game-01/engine/src/ui/select_panels.cpp
+index c9c918a..460072a 100644
+--- a/gd-game-01/engine/src/ui/select_panels.cpp
++++ b/gd-game-01/engine/src/ui/select_panels.cpp
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-10: PS Vita: character preview cache of 2 models (schedule).
++// Modified by irxd on 2026-11-11: PS Vita: Max FPS 30 (default, steady) or 60, paced by vitaGL's vblank interval.
+ #include "ui/select_panels.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -1146,10 +1147,18 @@ private:
+              "Balanced (1.7x) or Performance (2x, the fastest). On a 1440p screen: 960p, 847p, 720p. Native draws "
+              "at the screen's resolution and uses DLSS 4 or FSR 3.1 only as anti-aliasing (DLAA with DLSS 4).",
+              {{"performance", "Performance"}, {"balanced", "Balanced"}, {"quality", "Quality"}, {"native", "Native (DLAA)"}}, "ai_upscaling"},
++#if defined(__vita__)
++            {Kind::Choice, "max_fps", "Max FPS", true,
++             "The highest frame rate the game draws at; the original ran at 60. 30 keeps every frame on screen for "
++             "two refreshes: steady motion. 60 draws as fast as the PS Vita can, up to 60; busy stages run below it "
++             "and vary. Unlimited also drops vertical sync (tearing).",
++             {{"30", "30 (steady)"}, {"60", "60"}, {"unlimited", "Unlimited"}}},
++#else
+             {Kind::Choice, "max_fps", "Max FPS", true,
+              "The highest frame rate the game draws at; the original ran at 60. Unlimited draws as fast as the "
+              "computer can (no vertical sync).",
+              {{"60", "60"}, {"120", "120"}, {"144", "144"}, {"240", "240"}, {"unlimited", "Unlimited"}}},
++#endif
+             {Kind::Check, "fps_counter", "Show FPS Counter", true,
+              "Shows the frames drawn per second in the bottom-left corner of the screen."},
+             {Kind::Choice, "hdr", "HDR", true,

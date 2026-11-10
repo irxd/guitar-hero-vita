@@ -43,6 +43,7 @@
 
 #include "glsl_es100.h"
 #include "texture_palette.h"
+#include "vita_display.h"
 #include "vita_profile.h"
 
 // newlib heap for the game's own allocations. vitaGL takes its memory from
@@ -644,6 +645,15 @@ __attribute__((constructor)) void vitaEarlyInit() {
 }  // namespace
 
 namespace vita {
+
+void setSwapInterval(int vblanks) {
+    static int current = -1;
+    if (vblanks == current) return;
+    current = vblanks;
+    eglSwapInterval(nullptr, vblanks);  // vitaGL: sceDisplayWaitVblankStartMulti(vblanks) after each frame
+    SDL_Log("vita: display paced at %d vblank(s) a frame (%s)", vblanks,
+            vblanks == 2 ? "30 fps" : vblanks == 1 ? "up to 60 fps" : "no vertical sync");
+}
 
 void profilePhase(const char* name) {
     if (kFrameStats && gPhaseLevel >= 1) switchPhase(name, SDL_GetTicksNS());

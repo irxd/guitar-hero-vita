@@ -32,6 +32,7 @@ platforms build exactly as upstream.
 | 2026-11-11 | `0012-vita-renderer-phases.patch` | `gd-game-01/engine/src/render/renderer.cpp` | PS Vita: `Renderer::drawMesh` timed as its own nested phase in the gd01.log report |
 | 2026-11-11 | `0013-vita-scene-renderer-caches.patch` | `gd-game-01/engine/src/render/scene_renderer.h`, `gd-game-01/engine/src/render/scene_renderer.cpp` | PS Vita: the scene renderer caches what upstream recomputes with strings on every draw (the mesh + material key, child, bone and light name lookups) by the address of the name string, checked against its text on every hit; only found objects are cached |
 | 2026-11-11 | `0014-vita-anim-parent-index.patch` | `gd-game-01/engine/src/scene/anim.h`, `gd-game-01/engine/src/scene/anim.cpp` | PS Vita: `AnimPlayer` resolves each node's parent index once when it is built; `updateTransforms` looked the parent up by name for every node on every call |
+| 2026-11-11 | `0015-vita-frame-cap.patch` | `gd-game-01/engine/src/app.cpp`, `gd-game-01/engine/src/render/renderer.cpp`, `gd-game-01/engine/src/ui/select_panels.cpp` | PS Vita: Max FPS offers 30 (the new Vita default, steady), 60 and Unlimited; `Renderer::setFrameCap` sets vitaGL's vblank interval (2, 1 or 0) instead of pacing with a timer (`vita/src/vita_display.h`) |
 
 ## New files
 
@@ -44,6 +45,8 @@ platforms build exactly as upstream.
 | 2026-11-10 | `vita/src/movie_worker.cpp`, `vita/src/movie_worker.h` | Movie decoding thread used by patch 0006 (pinned to core 1, skips B pictures and late conversions while behind, logs decode statistics) |
 | 2026-11-10 | `vita/src/mpeg2_neon.cpp`, `vita/src/mpeg2_neon.h` | NEON versions of the MPEG-2 decoder's inner loops used by patch 0007, with self-tests and timings against scalar copies |
 | 2026-11-10 | `vita/src/vita_profile.h` | Frame phase timing API used by patches 0008 and 0009 (implemented in `vita_platform.cpp`: per phase ms, draw calls, time inside draw calls and framebuffer readbacks) |
+| 2026-11-11 | `vita/src/vita_display.h` | Display pacing API used by patch 0015 (implemented in `vita_platform.cpp` with vitaGL's `eglSwapInterval`) |
+| 2026-11-11 | `tools/build-vitagl.sh` | Builds vitaGL from source with the port's build options (linked by `tools/build-vita.sh` when present) |
 | 2026-11-10 | `vita/compat/dlfcn.h` | Stub dynamic-loader header (the Vita has none) |
 | 2026-11-10 | `vita/tests/` | Desktop checks for the shader rewrite and the palette packing |
 | 2026-11-10 | `tools/` | Toolchain setup, desktop and Vita builds, patch stack, shader dump and validation, GPU memory probe, crash dump decoding, movie decode benchmark, hardware build/deploy/run loop (`vita-loop.sh`) |

@@ -136,7 +136,9 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
   - **Patch 0014:** `AnimPlayer::updateTransforms` looked up every node's parent by name in a `std::map` on every call (the track calls it ~10 times a frame). Parent indices are now resolved once. Track 4.6 → 3.0 ms, script 1.1 → 0.85 ms.
   - **Songs: 34-48 FPS** (20.5-29.5 ms CPU a frame; GPU wait 0.1-0.2 ms, so still CPU bound). The heaviest shots (520 draws) are at 34-35 FPS.
   - Per frame now (level 1): venue draw 11-20 ms (~32-37 us per mesh, scene renderer + GL), track 3 ms, guitarist 2.2 ms, crowd 1.5-2 ms, script 0.85 ms.
-  - **Next:** a frame-rate option (30 locked / unlocked) so play is steady at 30; then the per-mesh cost in the scene renderer (state building, string mesh names in the track) and animation on a second core, the only route toward 60.
+- [x] **Hardware run 14 (2026-11-11): 30 FPS lock.** **Patch 0015:** Max FPS on Vita is 30 (new default), 60 or Unlimited. `Renderer::setFrameCap` sets vitaGL's vblank interval (`eglSwapInterval`: vitaGL's display queue calls `sceDisplayWaitVblankStartMulti(n)`), so 30 shows each frame for exactly two 60 Hz refreshes, with no timer drift. **Songs at 30: 29.7-30.0 FPS**, 4-12 ms to spare per frame; the heaviest shot (525-544 draws, 30-31 ms CPU) is at the edge (27-30). 60 runs unlocked (34-48).
+  - One launch hung inside `vglInitExtended` right after a quit through vitacompanion (no crash dump); the relaunch was fine. Watch for it.
+  - **Next:** margin for the heaviest shots; then the per-mesh cost in the scene renderer (state building, string mesh names in the track) and animation on a second core, the only route toward 60.
 - FPS: the engine's own counter is under Options → Enhanced Settings → PERFORMANCE & GRAPHICS → "Show FPS Counter" (`fps_counter` in `ux0:data/gd01/enhanced.json`). `GD01_FRAMELOG` logs the fps every half second.
 - Tooling: `tools/parse-core.sh` decodes `ux0:data/psp2core-*.psp2dmp` (the dump must come from the same build). It runs vita-parse-core (Python 2 code) through `tools/parse_core_py3.py` in a venv with pyelftools 0.29. The user approved running this external tool on 2026-11-10.
 - [ ] GL shim: bind gl.cpp's pointers to vitaGL, and rewrite the shaders for the highway / track only
@@ -260,3 +262,4 @@ Alternatives:
 - 2026-11-11: Hardware run 11: index skeleton (patch 0011): songs 14-17 → 22-34 FPS. Next: venue draw CPU per draw.
 - 2026-11-11: Hardware run 12: scene renderer caches (patch 0013): songs 22-34 → 24-35 FPS. Next: GL uniform and state cost per draw.
 - 2026-11-11: Hardware run 13: profiler off by default (it cost 3-4 ms), own vitaGL build, AnimPlayer parent indices (patch 0014): songs 29-43 → 34-48 FPS.
+- 2026-11-11: Hardware run 14: Max FPS 30 (default) paced by vblank interval (patch 0015): songs hold 29.7-30.0 FPS; heaviest shot at the edge.
