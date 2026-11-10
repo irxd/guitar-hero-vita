@@ -10,5 +10,9 @@ Guitar Dream Engine.
 - Licensed under the upstream terms: PolyForm Noncommercial 1.0.0 plus `LICENSE-ADDITIONAL-TERMS.md`.
   The port is non-commercial, and its full source is published with every build.
 
-Status: **planning / spike**. See [docs/port-plan.md](docs/port-plan.md).
-Agent and contributor rules: [CLAUDE.md](CLAUDE.md).
+Status: **early port**: menus and songs run on hardware; performance work in progress.
+See [docs/port-plan.md](docs/port-plan.md).
+
+- Changes from upstream: [CHANGES.md](CHANGES.md)
+- Licence: [LICENSE](LICENSE) and [LICENSE-ADDITIONAL-TERMS.md](LICENSE-ADDITIONAL-TERMS.md) (unchanged from upstream)
+- Agent and contributor rules: [CLAUDE.md](CLAUDE.md)

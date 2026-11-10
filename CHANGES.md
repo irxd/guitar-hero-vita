@@ -1,0 +1,46 @@
+# Changes from Guitar Dream Engine
+
+Based on Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine
+Forked from: https://github.com/mbracali/prj-gd-engine at `929477cafaa3675a309acf48c9e573cc563d906b` (2026-11-09), on 2026-11-10
+
+This repository does not carry a copy of the upstream sources. It holds a
+PS Vita build of `gd-game-01` made of:
+
+- **patches** to upstream files (`patches/`), applied to the pinned commit by
+  `tools/apply-patches.sh`. Each changed file is marked at its top with
+  `// Modified by <name> on <date>: <what was changed>`;
+- **new files** (the Vita layer, build scripts, tools, tests), listed below.
+
+All upstream changes are guarded by `#if defined(__vita__)`, so other
+platforms build exactly as upstream.
+
+## Changes to upstream files
+
+| Date | Patch | Files | Change |
+|---|---|---|---|
+| 2026-11-10 | `0001-vita-enhanced-profile.patch` | `gd-game-01/engine/src/app.cpp` | PS Vita Enhanced Settings profile in `profileValues()`: fullscreen, 60 FPS, internal resolution 448, no depth of field (the desktop's 1080p post-processing filled the Vita's video memory) |
+| 2026-11-10 | `0002-vita-no-menu-backdrop.patch` | `gd-game-01/engine/src/app.cpp` | PS Vita: `loadBackdrop()` loads no Enhanced Settings backdrop venue (a whole venue and band, about 17 MB of textures, kept for the session) |
+| 2026-11-10 | `0003-vita-character-preview-cache.patch` | `gd-game-01/engine/src/ui/select_panels.cpp` | PS Vita: the character preview cache holds 2 models instead of 6 (6 ran out of memory) |
+| 2026-11-10 | `0004-vita-joypad-frets.patch` | `gd-game-01/engine/src/input/input.cpp` | PS Vita: joypad fret layout L, Square, Triangle, Circle, R (the PS2 table uses L2/R2, which the Vita lacks); in a song a menu helper button bound to a fret is only that fret (Circle no longer pauses) |
+| 2026-11-10 | `0005-vita-free-venue-before-load.patch` | `gd-game-01/engine/src/app.cpp` | PS Vita: `startSong()` frees the old venue before building the next (after a retry both did not fit in video memory) |
+
+## New files
+
+| Date | Files | What |
+|---|---|---|
+| 2026-11-10 | `vita/CMakeLists.txt` | VitaSDK build of the upstream gd-game-01 sources with a reduced gd-engine-core (OpenGL backend only, no audio backends, no Vulkan), packaged as a VPK |
+| 2026-11-10 | `vita/src/vita_platform.cpp` | Vita platform layer, reached through linker `--wrap` of SDL calls: vitaGL bring-up, stand-ins for 5 GL functions vitaGL lacks, data paths in `ux0:data/gd01/`, logging, memory and frame statistics, shader hooks, `gl_VertexID` emulation, paletted texture uploads |
+| 2026-11-10 | `vita/src/glsl_es100.cpp`, `vita/src/glsl_es100.h` | GLSL ES 3.00 → 1.00 rewrite of gd01's shaders for vitaGL's translator |
+| 2026-11-10 | `vita/src/texture_palette.cpp`, `vita/src/texture_palette.h` | Lossless RGBA8 → 8-bit paletted texture packing (textures of at most 256 colours) |
+| 2026-11-10 | `vita/compat/dlfcn.h` | Stub dynamic-loader header (the Vita has none) |
+| 2026-11-10 | `vita/tests/` | Desktop checks for the shader rewrite and the palette packing |
+| 2026-11-10 | `tools/` | Toolchain setup, desktop and Vita builds, patch stack, shader dump and validation, GPU memory probe, crash dump decoding |
+| 2026-11-10 | `README.md`, `CLAUDE.md`, `docs/port-plan.md` | Project documentation |
+
+## Vita-only differences in behaviour
+
+- No Vulkan upscalers (FSR / DLSS), no HDR, no MIDI input, no launcher.
+- Enhanced Settings defaults as in patch 0001; the Enhanced Settings screen has no venue backdrop.
+- Button play on the Vita's pad instead of a guitar; touch controls off by default.
+- Textures of at most 256 colours are stored paletted and without mip levels (distant surfaces may shimmer slightly).
+- Shaders are rewritten to GLSL ES 1.00; the auto-exposure pass reads its 1x1 level with a texture bias.
