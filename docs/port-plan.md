@@ -59,9 +59,9 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
   - Gotcha: run WSL commands from PowerShell, not Git Bash (Git Bash rewrites `/mnt/...` paths).
   - **[verify]** how SDL3-Vita's window/video coexists with vitaGL. The SDL2 world ships a special `sdl2_vitagl`; for SDL3, plan to use SDL only for input/audio and initialise vitaGL directly.
 - [ ] Install the Vita3K emulator. Get `libshacccg.suprx` onto the console and into Vita3K.
-- [x] Hacked Vita ready: FW 3.65 + Ensō (version spoofed to 3.74, cosmetic only). Still needed: `libshacccg.suprx` installed.
+- [x] Hacked Vita ready: FW 3.65 + Ensō (version spoofed to 3.74, cosmetic only). `libshacccg.suprx` is installed in both `ur0:data/` (where vitaShaRK looks) and `ur0:data/external/` (where vitaGL r1488 looks; both checked with `strings` on the libraries).
 - [x] GH1 PS2 disc ripped: `original_isos/Guitar Hero (USA).iso` (2,300,313,600 bytes)
-- [ ] Confirm a native Linux/Windows build of upstream gd01 runs with the user's ISO (baseline, to check the rip)
+- [ ] Confirm a native Linux/Windows build of upstream gd01 runs with the user's ISO (baseline, to check the rip). 2026-11-10: `tools/build-desktop.sh` built the unmodified upstream for Linux in WSL (214 steps, only OpenAL third-party warnings), and `tools/run-desktop.sh` launched it through WSLg. It boots with the ISO. Rendering is software (llvmpipe, GL 4.5 Mesa 26.0.8), so it's slow but fine as a reference. Audio goes through PulseAudio. Waiting on the user to confirm menus + one song.
 
 ### Phase 1: spike, "hello highway" (upstream estimate 1–2 weeks)
 - [ ] `vita/CMakeLists.txt`: build the upstream sources with VitaSDK. No gdcore, no Vulkan, no MIDI.
