@@ -1,0 +1,25 @@
+diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
+--- a/gd-game-01/engine/src/app.cpp
++++ b/gd-game-01/engine/src/app.cpp
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-10: PS Vita Enhanced Settings profile (profileValues).
++// Modified by irxd on 2026-11-10: PS Vita: no Enhanced Settings backdrop venue (loadBackdrop).
+ #include "app.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -1719,6 +1720,13 @@
+ void App::loadBackdrop() {
+     if (backdropTried_ || !data_) return;
+     backdropTried_ = true;
++#if defined(__vita__)
++    // PS Vita: a whole venue and band kept loaded for the Enhanced Settings
++    // backdrop is about 17 MB of textures, an eighth of the video memory
++    // (measured on the desktop with the Vita profile). The screen shows
++    // without it (drawMenuBackdrop returns false).
++    return;
++#endif
+     const uint64_t t0 = SDL_GetTicksNS();
+     try {
+         backdrop_ = std::make_unique<VenueRenderer>(renderer_, *data_, "big_club",  // a medium venue (1.2.2)

@@ -1,5 +1,5 @@
 diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
-index 05cdb20..0ffbbbf 100644
+index 05cdb20..c281dbb 100644
 --- a/gd-game-01/engine/src/app.cpp
 +++ b/gd-game-01/engine/src/app.cpp
 @@ -1,5 +1,6 @@
@@ -9,7 +9,7 @@ index 05cdb20..0ffbbbf 100644
  #include "app.h"
  
  #include <SDL3/SDL.h>
-@@ -149,6 +150,15 @@ std::map<std::string, Json> profileValues(bool deck) {
+@@ -149,6 +150,16 @@ std::map<std::string, Json> profileValues(bool deck) {
      for (auto& [k, v] : std::map<std::string, Json>{{"screen_mode", t("fullscreen")}, {"max_fps", t("60")}, {"internal_res", t("900")},
                                                      {"touch", b(true)}})
          d[k] = v;
@@ -17,10 +17,11 @@ index 05cdb20..0ffbbbf 100644
 +    // PS Vita (homebrew): 128 MB of video memory and a 960x544 screen. The
 +    // desktop's 1080p post-processing chain filled the video memory in the
 +    // menus and the venue load crashed, so the PS2's own resolution, and no
-+    // depth of field (its blur targets are the next biggest).
++    // depth of field (its blur targets are the next biggest). Touch stays
++    // off: the hands rest on the screen edges, and the buttons cover it all.
 +    (void)deck;
 +    for (auto& [k, v] : std::map<std::string, Json>{{"screen_mode", t("fullscreen")}, {"max_fps", t("60")}, {"internal_res", t("448")},
-+                                                    {"bokeh", t("none")}, {"touch", b(true)}})
++                                                    {"bokeh", t("none")}})
 +        d[k] = v;
  #else
  #if defined(GD01_STEAM_DECK)
