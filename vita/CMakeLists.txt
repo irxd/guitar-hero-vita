@@ -75,7 +75,14 @@ set(GD01_SOURCES
 )
 list(TRANSFORM GD01_SOURCES PREPEND "${GD01_SRC}/")
 
-add_executable(gd01 ${GD01_SOURCES})
+add_executable(gd01 ${GD01_SOURCES} src/vita_platform.cpp)
+# SDL calls the Vita layer (src/vita_platform.cpp) takes over, so the
+# upstream sources stay unmodified.
+foreach(sym SDL_CreateWindow SDL_GL_CreateContext SDL_GL_DestroyContext SDL_GL_MakeCurrent
+            SDL_GL_SwapWindow SDL_GL_SetSwapInterval SDL_GL_GetProcAddress SDL_GL_ExtensionSupported
+            SDL_GetBasePath SDL_GetPrefPath)
+  target_link_options(gd01 PRIVATE "-Wl,--wrap=${sym}")
+endforeach()
 target_include_directories(gd01 PRIVATE ${GD01_SRC} ${GD01_GEN})
 target_compile_definitions(gd01 PRIVATE GD01_DLSS=0 GD01_VITA=1 GD01_VERSION="${PROJECT_VERSION}")
 target_link_libraries(gd01 PRIVATE
