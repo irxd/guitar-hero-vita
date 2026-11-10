@@ -30,3 +30,6 @@ param.sfo
 /agents/scratch/
 *.log
 .vscode/
+
+# Local copies of built VPKs
+/build-out/
