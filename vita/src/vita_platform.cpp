@@ -16,6 +16,7 @@
 //   SDL_GL_ExtensionSupported-> vitaGL's GL_EXTENSIONS string
 //   SDL_GetBasePath          -> ux0:data/gd01/ (the ISO is picked up there)
 //   SDL_GetPrefPath          -> ux0:data/gd01/ (config, career, enhanced settings)
+//   SDL_SetLogOutputFunction -> the same function, run by a log writer thread
 //
 // Before main: the data folder is created, GD01_LOG points the log at
 // ux0:data/gd01/gd01.log (main.cpp's openLogFile), and the clocks go to max.
@@ -27,13 +28,17 @@
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/clib.h>
+#include <psp2/kernel/cpu.h>
+#include <psp2/kernel/threadmgr.h>
 #include <psp2/power.h>
 
+#include <algorithm>
 #include <cstdarg>
 
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -53,6 +58,8 @@
 // vita/CMakeLists.txt). [verify] tune with the memory reports in gd01.log.
 extern "C" {
 int _newlib_heap_size_user = 256 * 1024 * 1024;
+// The real SDL function, behind -Wl,--wrap (asynchronous log below).
+void __real_SDL_SetLogOutputFunction(SDL_LogOutputFunction callback, void* userdata);
 }
 
 namespace {
@@ -89,6 +96,7 @@ constexpr bool kFrameStats = true;
 constexpr uint64_t kFrameStatsNs = 5'000'000'000ull;
 struct FrameStats {
     uint64_t frames = 0, cpuNs = 0, swapNs = 0, draws = 0, bufferBytes = 0, culled = 0;
+    uint64_t maxFrameNs = 0, slowFrames = 0;  // frame interval (swap to swap); slow: over two vblanks
 };
 FrameStats gFrame;
 uint64_t gFrameStatsStart = 0, gLastSwapEnd = 0;
@@ -101,6 +109,8 @@ struct PhaseStats {
 };
 constexpr int kMaxPhases = 32;
 PhaseStats gPhases[kMaxPhases];
+uint64_t gFrameNs[kMaxPhases];  // this frame's time per phase (slow frame reports)
+int gSpikeReports = 0;          // slow frame lines in the current window
 // Phase timing costs time itself: a clock read is 1.3 us on the Vita
 // (hardware, 2026-11-11), and level 2 reads it 4 times per mesh draw (3-4 ms
 // a song frame). GD01_VITA_PHASES (args.txt): 0 off (default: the fps line
@@ -119,7 +129,7 @@ int phaseSlot(const char* name) {
 }
 
 void switchPhase(const char* name, uint64_t now) {
-    if (gPhase >= 0 && gPhaseStart) gPhases[gPhase].ns += now - gPhaseStart;
+    if (gPhase >= 0 && gPhaseStart) gPhases[gPhase].ns += now - gPhaseStart, gFrameNs[gPhase] += now - gPhaseStart;
     gPhase = name ? phaseSlot(name) : -1;
     gPhaseStart = now;
 }
@@ -215,7 +225,31 @@ void hookBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const vo
 void frameStatsSwap(uint64_t swapStart, uint64_t swapEnd) {
     switchPhase("swap", swapStart);
     switchPhase(kLoopPhase, swapEnd);
-    if (gLastSwapEnd) gFrame.cpuNs += swapStart - gLastSwapEnd;
+    if (gLastSwapEnd) {
+        gFrame.cpuNs += swapStart - gLastSwapEnd;
+        // A frame over 34 ms misses the 30 fps pair of vblanks and stays a
+        // third one (20 fps for that frame): the dips a 5 s average hides.
+        const uint64_t frameNs = swapEnd - gLastSwapEnd, cpuNs = swapStart - gLastSwapEnd;
+        gFrame.maxFrameNs = std::max(gFrame.maxFrameNs, frameNs);
+        if (frameNs > 34'000'000ull) ++gFrame.slowFrames;
+        if (gPhaseLevel > 0 && cpuNs > 34'000'000ull && gSpikeReports < 12) {
+            ++gSpikeReports;
+            std::string line;
+            char part[96];
+            for (int pass = 0; pass < 4; ++pass) {  // the four longest phases
+                int best = -1;
+                for (int i = 0; i < gPhaseCount; ++i)
+                    if (gFrameNs[i] > 0 && (best < 0 || gFrameNs[i] > gFrameNs[best])) best = i;
+                if (best < 0) break;
+                std::snprintf(part, sizeof part, " %s %.1f;", gPhases[best].name, double(gFrameNs[best]) / 1e6);
+                line += part;
+                gFrameNs[best] = 0;
+            }
+            SDL_Log("vita: slow frame: cpu %.1f ms (frame %u in window), longest:%s", double(cpuNs) / 1e6,
+                    unsigned(gFrame.frames), line.c_str());
+        }
+    }
+    for (uint64_t& ns : gFrameNs) ns = 0;
     gFrame.swapNs += swapEnd - swapStart;
     ++gFrame.frames;
     gLastSwapEnd = swapEnd;
@@ -224,10 +258,18 @@ void frameStatsSwap(uint64_t swapStart, uint64_t swapEnd) {
         return;
     }
     if (swapEnd - gFrameStatsStart < kFrameStatsNs) return;
+    if (gPhaseLevel == 0) {  // normal play: no periodic log line (see the memory report)
+        gFrame = {};
+        gFrameStatsStart = swapEnd;
+        return;
+    }
     const double seconds = double(swapEnd - gFrameStatsStart) / 1e9, f = double(gFrame.frames);
-    SDL_Log("vita: perf: %.1f fps; per frame: cpu %.1f ms, swap wait %.1f ms, %.0f draws (%.0f culled), %.0f KB buffer uploads",
+    SDL_Log("vita: perf: %.1f fps; per frame: cpu %.1f ms, swap wait %.1f ms, %.0f draws (%.0f culled), %.0f KB buffer uploads; "
+            "slowest frame %.1f ms, %u over 34 ms",
             f / seconds, double(gFrame.cpuNs) / 1e6 / f, double(gFrame.swapNs) / 1e6 / f, double(gFrame.draws) / f,
-            double(gFrame.culled) / f, double(gFrame.bufferBytes) / 1024.0 / f);
+            double(gFrame.culled) / f, double(gFrame.bufferBytes) / 1024.0 / f, double(gFrame.maxFrameNs) / 1e6,
+            unsigned(gFrame.slowFrames));
+    gSpikeReports = 0;
     if (gPhaseLevel > 0) reportPhases(f);
     gFrame = {};
     gFrameStatsStart = swapEnd;
@@ -632,6 +674,73 @@ void initVitaGl() {
             unsigned(vglMemFree(VGL_MEM_VRAM) >> 10), unsigned(vglMemFree(VGL_MEM_RAM) >> 10));
 }
 
+// --- Asynchronous log (see __wrap_SDL_SetLogOutputFunction) ----------------
+struct LogLine {
+    int category;
+    SDL_LogPriority priority;
+    std::string message;
+};
+SDL_Mutex* gLogMutex = nullptr;
+SDL_Condition* gLogWake = nullptr;      // a line queued
+SDL_Condition* gLogDrained = nullptr;   // the queue emptied
+std::deque<LogLine> gLogQueue;
+bool gLogBusy = false;                  // the writer is outputting a line
+SDL_LogOutputFunction gLogInner = nullptr;
+void* gLogInnerData = nullptr;
+SDL_Thread* gLogThread = nullptr;
+constexpr size_t kLogQueueMax = 2000;   // past it, lines are dropped (counted)
+unsigned gLogDropped = 0;
+
+void asyncLogOutput(void*, int category, SDL_LogPriority priority, const char* message) {
+    SDL_LockMutex(gLogMutex);
+    if (gLogQueue.size() < kLogQueueMax) gLogQueue.push_back({category, priority, message ? message : ""});
+    else ++gLogDropped;
+    SDL_SignalCondition(gLogWake);
+    SDL_UnlockMutex(gLogMutex);
+}
+
+int asyncLogThread(void*) {
+    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_2);
+    SDL_LockMutex(gLogMutex);
+    for (;;) {
+        while (gLogQueue.empty()) {
+            SDL_BroadcastCondition(gLogDrained);
+            SDL_WaitCondition(gLogWake, gLogMutex);
+        }
+        LogLine line = std::move(gLogQueue.front());
+        gLogQueue.pop_front();
+        const SDL_LogOutputFunction out = gLogInner;
+        void* data = gLogInnerData;
+        gLogBusy = true;
+        SDL_UnlockMutex(gLogMutex);
+        if (out) out(data, line.category, line.priority, line.message.c_str());
+        SDL_LockMutex(gLogMutex);
+        gLogBusy = false;
+    }
+    return 0;
+}
+
+void asyncLogDrain() {
+    SDL_LockMutex(gLogMutex);
+    while (!gLogQueue.empty() || gLogBusy) SDL_WaitCondition(gLogDrained, gLogMutex);
+    SDL_UnlockMutex(gLogMutex);
+}
+
+void asyncLogInstall(SDL_LogOutputFunction callback, void* userdata) {
+    if (!gLogMutex) {
+        gLogMutex = SDL_CreateMutex();
+        gLogWake = SDL_CreateCondition();
+        gLogDrained = SDL_CreateCondition();
+        gLogThread = gLogMutex && gLogWake && gLogDrained ? SDL_CreateThread(asyncLogThread, "gd01 log", nullptr) : nullptr;
+    }
+    if (!gLogThread) return __real_SDL_SetLogOutputFunction(callback, userdata);  // synchronous, as upstream
+    asyncLogDrain();  // lines queued for the previous function go to it
+    SDL_LockMutex(gLogMutex);
+    gLogInner = callback, gLogInnerData = userdata;
+    SDL_UnlockMutex(gLogMutex);
+    __real_SDL_SetLogOutputFunction(asyncLogOutput, nullptr);
+}
+
 __attribute__((constructor)) void vitaEarlyInit() {
     sceIoMkdir("ux0:data/gd01", 0777);
     sceIoRemove(kMemoryLogPath);  // one run per file, like gd01.log
@@ -749,7 +858,10 @@ bool __wrap_SDL_GL_SwapWindow(SDL_Window* /*window*/) {
     vglSwapBuffers(GL_FALSE);
     const uint64_t now = SDL_GetTicksNS();
     if (kFrameStats) frameStatsSwap(swapStart, now);
-    if (now >= gNextMemoryReport) {
+    // Periodic reports only in measured runs (GD01_VITA_PHASES >= 1): even
+    // queued to the log thread, a write to the memory card made the next
+    // frame 16-19 ms late (hardware, 2026-11-11). The first frame's report stays.
+    if (now >= gNextMemoryReport && (gNextMemoryReport == 0 || gPhaseLevel > 0)) {
         reportMemory(gNextMemoryReport == 0 ? "first frame" : "periodic");
         gNextMemoryReport = now + kMemoryReportNs;
     }
@@ -783,6 +895,16 @@ void* __wrap_memalign(size_t alignment, size_t size) {
     void* p = __real_memalign(alignment, size);
     if (!p && size) logAllocFailure("memalign", size);
     return p;
+}
+
+// The log, written by a thread on core 2. main.cpp's log output fflushes
+// gd01.log after every line, and SDL's own output follows: on the memory card
+// that blocked the game 20-60 ms a line (hardware, 2026-11-11: a hitch at
+// every 5 s perf line). The game's output function now runs on the writer
+// thread; the caller only queues the message. Restoring another function
+// (main.cpp at exit) first waits for the queue to empty.
+void __wrap_SDL_SetLogOutputFunction(SDL_LogOutputFunction callback, void* userdata) {
+    asyncLogInstall(callback, userdata);
 }
 
 bool __wrap_SDL_GL_SetSwapInterval(int interval) {

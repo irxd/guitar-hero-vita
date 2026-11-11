@@ -80,7 +80,7 @@ add_executable(gd01 ${GD01_SOURCES} src/vita_platform.cpp src/glsl_es100.cpp src
 # upstream sources stay unmodified.
 foreach(sym SDL_CreateWindow SDL_GL_CreateContext SDL_GL_DestroyContext SDL_GL_MakeCurrent
             SDL_GL_SwapWindow SDL_GL_SetSwapInterval SDL_GL_GetProcAddress SDL_GL_ExtensionSupported
-            SDL_GetBasePath SDL_GetPrefPath)
+            SDL_GetBasePath SDL_GetPrefPath SDL_SetLogOutputFunction)
   target_link_options(gd01 PRIVATE "-Wl,--wrap=${sym}")
 endforeach()
 # vita/src is on the path for the patches' Vita headers (e.g. movie_worker.h in patch 0006).

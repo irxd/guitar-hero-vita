@@ -37,6 +37,7 @@ platforms build exactly as upstream.
 | 2026-11-11 | `0017-vita-camera-seed.patch` | `gd-game-01/engine/src/game/venue_camera.cpp` | PS Vita: `GD01_VITA_SEED` seeds the venue camera's shot choice, for repeatable benchmark runs (unset: random as upstream) |
 | 2026-11-11 | `0018-vita-crowd-lod.patch` | `gd-game-01/engine/src/render/crowd_renderer.h`, `gd-game-01/engine/src/render/crowd_renderer.cpp`, `gd-game-01/engine/src/render/venue_renderer.cpp` | PS Vita: at Max FPS 60 the crowd is neither animated nor drawn; at 30 the six crowd impostors are re-rendered half per frame (each at 15 Hz) |
 | 2026-11-11 | `0009-vita-venue-phases.patch` (updated) | `gd-game-01/engine/src/render/venue_renderer.cpp` | PS Vita: the venue draw is split into crowd impostors / stage / band / crowd / rest phases |
+| 2026-11-11 | `0018-vita-crowd-lod.patch` (updated) | `gd-game-01/engine/src/render/crowd_renderer.cpp` | PS Vita: at Max FPS 30 the 3D crowd members are animated half per frame too (each at 15 Hz), the archetypes on their impostor's frame |
 | 2026-11-11 | `0015-vita-frame-cap.patch` (updated) | `gd-game-01/engine/src/ui/select_panels.cpp` | PS Vita: the Max FPS help says 60 leaves out the crowd |
 
 ## New files
