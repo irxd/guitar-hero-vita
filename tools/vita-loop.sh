@@ -135,7 +135,12 @@ for d in $new_dumps; do
     fi
 done
 
-if [ "$launch" = 1 ] && [ "$keep" = 0 ]; then vcmd "quit $TITLE_ID" || true; fi
+if [ "$launch" = 1 ] && [ "$keep" = 0 ]; then
+    vcmd "quit $TITLE_ID" || true
+    # Let the Vita sleep again (nosleep stays on until turned off: the LED
+    # stayed green with the screen off, 2026-11-11).
+    vcmd "nosleep off" || true
+fi
 
 {
     echo "run $stamp, wait ${wait_s}s, input: ${input:-none}"
