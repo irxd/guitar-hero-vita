@@ -148,7 +148,7 @@ index 0861043..db05ad9 100644
          SDL_GL_SetSwapInterval(0);
          paceNs_ = 0, nextFrameNs_ = 0;
 diff --git a/gd-game-01/engine/src/ui/select_panels.cpp b/gd-game-01/engine/src/ui/select_panels.cpp
-index c9c918a..5112b7a 100644
+index c9c918a..2c2c7fb 100644
 --- a/gd-game-01/engine/src/ui/select_panels.cpp
 +++ b/gd-game-01/engine/src/ui/select_panels.cpp
 @@ -1,6 +1,8 @@
@@ -160,7 +160,7 @@ index c9c918a..5112b7a 100644
  #include "ui/select_panels.h"
  
  #include <SDL3/SDL.h>
-@@ -1146,10 +1148,21 @@ private:
+@@ -1146,10 +1148,20 @@ private:
               "Balanced (1.7x) or Performance (2x, the fastest). On a 1440p screen: 960p, 847p, 720p. Native draws "
               "at the screen's resolution and uses DLSS 4 or FSR 3.1 only as anti-aliasing (DLAA with DLSS 4).",
               {{"performance", "Performance"}, {"balanced", "Balanced"}, {"quality", "Quality"}, {"native", "Native (DLAA)"}}, "ai_upscaling"},
@@ -171,8 +171,7 @@ index c9c918a..5112b7a 100644
 +             "band or crowd) at 60; songs started afterwards load faster. The original ran at 60.",
 +             {{"30", "30 FPS"}, {"60", "60 FPS"}, {"notes", "Notes Only"}}},
 +            {Kind::Check, "crowd", "Crowd", true,
-+             "Shows the crowd at 30 and 60 FPS: up to 8 people nearest the camera in 3D, the rest flat. Off hides "
-+             "the whole crowd for a steadier frame rate. Notes Only never shows it. Changes show at the next camera cut."},
++             "Shows the crowd at 30 and 60 FPS. Off hides the whole crowd. Notes Only never shows it."},
 +#else
              {Kind::Choice, "max_fps", "Max FPS", true,
               "The highest frame rate the game draws at; the original ran at 60. Unlimited draws as fast as the "
