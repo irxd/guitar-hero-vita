@@ -1,0 +1,470 @@
+diff --git a/gd-game-01/engine/src/render/renderer.cpp b/gd-game-01/engine/src/render/renderer.cpp
+index db05ad9..b79b0df 100644
+--- a/gd-game-01/engine/src/render/renderer.cpp
++++ b/gd-game-01/engine/src/render/renderer.cpp
+@@ -2,6 +2,7 @@
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-11: PS Vita: frame phase timing of drawMesh (diagnostic).
+ // Modified by irxd on 2026-11-11: PS Vita: Max FPS 30 (default, steady) or 60, paced by vitaGL's vblank interval.
++// Modified by irxd on 2026-11-11: PS Vita: bone palette skinning, so a character's skinned pieces can be merged into fewer draws.
+ #include "render/renderer.h"
+ #if defined(__vita__)
+ #include "vita_display.h"  // the Vita port's vita/src: vblank interval
+@@ -286,6 +287,9 @@ bool Renderer::init(SDL_Window* window, std::string& error) {
+     uTint_ = gl::glGetUniformLocation(program_, "uTint");
+     uSkin_ = gl::glGetUniformLocation(program_, "uSkin");
+     uBones_ = gl::glGetUniformLocation(program_, "uBones");
++#if defined(__vita__)
++    uBoneRows_ = gl::glGetUniformLocation(program_, "uBoneRows");
++#endif
+     uLit_ = gl::glGetUniformLocation(program_, "uLit");
+     uMatFlags_ = gl::glGetUniformLocation(program_, "uMatFlags");
+     uColorScale_ = gl::glGetUniformLocation(program_, "uColorScale");
+@@ -986,6 +990,19 @@ void Renderer::drawMesh(int mesh, const float* mvp, const RenderState& st) {
+     gl::glUniform1f(uCutout_, st.alphaCutout ? 0.5f : -1.0f);
+     gl::glUniform2f(uUvOffset_, st.uvOffset[0], st.uvOffset[1]);
+     gl::glUniform4fv(uTint_, 1, st.tint);
++#if defined(__vita__)
++    if (st.bones && uBoneRows_ >= 0) {
++        // The palette's rows 0..2 of each column-major affine matrix; unused
++        // slots zero (the shader sums over every slot).
++        float rows[kVitaPaletteBones * 3 * 4] = {};
++        const int n = std::clamp(st.vitaBoneCount, 1, kVitaPaletteBones);
++        for (int b = 0; b < n; ++b)
++            for (int r = 0; r < 3; ++r)
++                for (int c = 0; c < 4; ++c) rows[(b * 3 + r) * 4 + c] = st.bones[b * 16 + c * 4 + r];
++        gl::glUniform1i(uSkin_, st.vitaPalette ? 2 : 1);
++        gl::glUniform4fv(uBoneRows_, kVitaPaletteBones * 3, rows);
++    } else
++#endif
+     if (st.bones) {
+         gl::glUniform1i(uSkin_, 1);
+         gl::glUniformMatrix4fv(uBones_, 4, GL_FALSE, st.bones);
+diff --git a/gd-game-01/engine/src/render/renderer.h b/gd-game-01/engine/src/render/renderer.h
+index ed2bb66..3bc0b6d 100644
+--- a/gd-game-01/engine/src/render/renderer.h
++++ b/gd-game-01/engine/src/render/renderer.h
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-11: PS Vita: bone palette skinning, so a character's skinned pieces can be merged into fewer draws.
+ #pragma once
+ 
+ #include <SDL3/SDL.h>
+@@ -145,7 +146,18 @@ public:
+         float texU[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1}, texO[2] = {0.5f, 0.5f};
+         float eye[3] = {0, 0, 0}, camRight[3] = {1, 0, 0}, camUp[3] = {0, 0, 1};
+         int texDecal = 0;  // TFX DECAL: 1 the texture alone, 2 texture colour with the fragment alpha (pass 0)
++#if defined(__vita__)
++        // PS Vita: `bones` holds this many matrices (at most kVitaPaletteBones);
++        // with vitaPalette each vertex's colour bytes are its 4 palette indices.
++        int vitaBoneCount = 4;
++        bool vitaPalette = false;
++#endif
+     };
++#if defined(__vita__)
++    static constexpr int kVitaPaletteBones = 8;  // the shader (vita_platform.cpp) sums over all 8 slots
++    // The scene shader takes a bone palette (vita_platform.cpp rewrites it).
++    bool vitaBonePalette() const { return uBoneRows_ >= 0; }
++#endif
+     void drawMesh(int mesh, const float* mvp, const RenderState& state);
+ 
+     // Off-screen colour + depth targets. createRenderTarget returns a texture
+@@ -208,6 +220,9 @@ private:
+     struct GpuMesh { unsigned vao = 0, vbo = 0, ibo = 0; int count = 0; };
+     std::vector<GpuMesh> meshes_{GpuMesh{}};
+     int uCutout_ = -1, uUvOffset_ = -1, uTint_ = -1;
++#if defined(__vita__)
++    int uBoneRows_ = -1;
++#endif
+     int uSkin_ = -1, uBones_ = -1, uMatFlags_ = -1, uColorScale_ = -1, uFog_ = -1, uFogColor_ = -1;
+     int uLit_ = -1, uModel_ = -1, uAmbient_ = -1, uLightCount_ = -1, uLightDir_ = -1, uLightColor_ = -1;
+ 
+diff --git a/gd-game-01/engine/src/render/scene_renderer.cpp b/gd-game-01/engine/src/render/scene_renderer.cpp
+index 0265696..21e21fb 100644
+--- a/gd-game-01/engine/src/render/scene_renderer.cpp
++++ b/gd-game-01/engine/src/render/scene_renderer.cpp
+@@ -2,6 +2,7 @@
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-11: PS Vita: name lookups, mesh keys and light lists cached per draw source (no per-draw string work).
+ // Modified by irxd on 2026-11-11: PS Vita: meshes outside the view (by a bounding sphere of their vertices) are not drawn.
++// Modified by irxd on 2026-11-11: PS Vita: a character's consecutive skinned pieces drawn as merged meshes with a bone palette.
+ #include "render/scene_renderer.h"
+ 
+ #include "render/gl.h"
+@@ -11,6 +12,7 @@
+ #include "vita_profile.h"  // the Vita port's vita/src: culled draw count
+ 
+ #include <cstdlib>
++#include <cstring>
+ #endif
+ 
+ #include <SDL3/SDL.h>
+@@ -312,6 +314,7 @@ int SceneRenderer::texture(const std::string& name, bool repeat) {
+ void SceneRenderer::draw(const std::string& name, const Mat4& viewProj, const Mat4& model, const EnvironObj* env) {
+     env_ = env;
+ #if defined(__vita__)
++    if (!vitaBatching_) vitaLightValid_ = false;  // lights may have moved since the last draw
+     if (const SceneObject* o = vitaFind(name)) drawObject(*o, viewProj, model, 0);
+ #else
+     if (const SceneObject* o = scene_.find(name)) drawObject(*o, viewProj, model, 0);
+@@ -366,6 +369,9 @@ void SceneRenderer::setMatFlags(Renderer::RenderState& st, const MatObj* mat) co
+ }
+ 
+ const Lighting* SceneRenderer::lightingFor(const MatObj* mat) {
++#if defined(__vita__)
++    vitaLightValid_ = false;  // lighting_ is about to change
++#endif
+     if (!mat || !env_) return nullptr;
+     if (!(mat->useEnviron || !mat->vertAmb)) return nullptr;
+     if (!mat->stages.empty() && mat->stages[0].blend == 1) return nullptr;
+@@ -374,7 +380,12 @@ const Lighting* SceneRenderer::lightingFor(const MatObj* mat) {
+     l.count = 0;
+     if (!mat->useEnviron) return &l;
+     const LightObj* point = nullptr;
++#if defined(__vita__)
++    static std::vector<const LightObj*> dirs;  // main thread: no allocation per draw
++    dirs.clear();
++#else
+     std::vector<const LightObj*> dirs;
++#endif
+ #if defined(__vita__)
+     VitaLights& vl = vitaLights_[env_];
+     if (vl.objs.size() != env_->lights.size() || std::find(vl.objs.begin(), vl.objs.end(), nullptr) != vl.objs.end()) {
+@@ -477,10 +488,196 @@ bool SceneRenderer::vitaOutside(const DrawMesh& dm, const Mat4& mvp) {
+         }
+     return false;
+ }
++
++// --- PS Vita: merged character pieces ---------------------------------------
++// A character is ~11 skinned pieces of at most 4 bones each, one draw each
++// (a crowd member: ~33 us of CPU per draw on the Vita). Consecutive pieces
++// that share every draw setting become one mesh (no reordering, so blended
++// pieces are merged too): their vertices concatenated, each
++// vertex's colour bytes holding its 4 indices into the chunk's palette of up
++// to 8 bones (skinned vertices are white; the shader substitutes white).
++// The palette matrices are computed as boneMatrices does, every draw.
++const Lighting* SceneRenderer::vitaLightingFor(const MatObj* mat) {
++    if (vitaLightValid_ && mat == vitaLightMat_ && env_ == vitaLightEnv_) return vitaLightResult_;
++    vitaLightResult_ = lightingFor(mat);
++    vitaLightMat_ = mat, vitaLightEnv_ = env_, vitaLightValid_ = true;
++    return vitaLightResult_;
++}
++
++void SceneRenderer::vitaBeginBatch() {
++    // Only with the bone palette shader, which is experimental and off unless
++    // GD01_VITA_MERGE=1 (vita_platform.cpp applyBonePalette).
++    vitaBatching_ = renderer_.vitaBonePalette();
++    vitaLightValid_ = false;  // a new character draw: lights may have moved
++}
++
++void SceneRenderer::vitaEndBatch() {
++    vitaFlush();
++    vitaBatching_ = false;
++}
++
++bool SceneRenderer::vitaBatchable(const DrawMesh& dm, const Renderer::RenderState& st) {
++    if (!dm.skin || !dm.mesh || !dm.geom || !dm.passes.empty() || st.decal) return false;
++    if (dm.stage && (dm.stage->texgen == 1 || dm.stage->texgen == 4)) return false;  // UV rows baked per piece
++    // Vertices that ever change (a MeshAnim: faces) are never merged.
++    auto [it, added] = vitaRevisions_.try_emplace(&dm, VitaRevision{dm.geom->revision, false});
++    if (!added && it->second.revision != dm.geom->revision) it->second.dynamic = true;
++    return !it->second.dynamic;
++}
++
++bool SceneRenderer::vitaSameDraw(const VitaPiece& a, const VitaPiece& b) {
++    const Renderer::RenderState &x = a.st, &y = b.st;
++    auto eq = [](const float* p, const float* q, int n) { return std::memcmp(p, q, size_t(n) * sizeof(float)) == 0; };
++    if (a.dm->mat != b.dm->mat || !eq(a.mvp.m.data(), b.mvp.m.data(), 16)) return false;
++    if (x.texture != y.texture || x.blend != y.blend || x.depthTest != y.depthTest || x.depthWrite != y.depthWrite ||
++        x.cull != y.cull || x.alphaCutout != y.alphaCutout || x.decal != y.decal || x.mirrored != y.mirrored ||
++        x.useEnviron != y.useEnviron || x.vertAmb != y.vertAmb || x.vertDyn != y.vertDyn || x.fog != y.fog ||
++        x.texgen != y.texgen || x.texDecal != y.texDecal)
++        return false;
++    if (!eq(x.uvOffset, y.uvOffset, 2) || !eq(x.tint, y.tint, 4) || !eq(&x.colorScale, &y.colorScale, 1) ||
++        !eq(&x.fogStart, &y.fogStart, 1) || !eq(&x.fogEnd, &y.fogEnd, 1) || !eq(x.fogColor, y.fogColor, 3) ||
++        !eq(x.texU, y.texU, 9) || !eq(x.texO, y.texO, 2) || !eq(x.eye, y.eye, 3) || !eq(x.camRight, y.camRight, 3) ||
++        !eq(x.camUp, y.camUp, 3))
++        return false;
++    if (a.lit != b.lit) return false;
++    if (!a.lit) return true;
++    const Lighting &l = a.light, &m = b.light;
++    return l.count == m.count && eq(l.ambient, m.ambient, 3) && eq(&l.dir[0][0], &m.dir[0][0], 4 * l.count) &&
++           eq(&l.color[0][0], &m.color[0][0], 4 * l.count);
++}
++
++const SceneRenderer::VitaMerged* SceneRenderer::vitaMergedFor(const std::vector<const DrawMesh*>& pieces) {
++    for (const VitaMerged& m : vitaMerged_)
++        if (m.pieces == pieces) return &m;
++    constexpr size_t kMaxMerged = 48;  // per renderer (pieces shown / hidden make variants); meshes are kept
++    if (vitaMerged_.size() >= kMaxMerged) return nullptr;
++    VitaMerged merged;
++    merged.pieces = pieces;
++    VitaChunk chunk;
++    std::vector<Vertex> verts;
++    std::vector<uint32_t> idx;
++    auto finish = [&] {
++        if (!verts.empty()) {
++            chunk.mesh = renderer_.createMesh(verts, idx);
++            merged.chunks.push_back(std::move(chunk));
++        }
++        chunk = VitaChunk{};
++        verts.clear();
++        idx.clear();
++    };
++    auto same = [](const VitaBone& a, const VitaBone& b) {
++        if (a.obj != b.obj) return false;
++        return !a.obj || (std::memcmp(a.offset.rot.data(), b.offset.rot.data(), sizeof(float) * 9) == 0 &&
++                          std::memcmp(a.offset.pos.data(), b.offset.pos.data(), sizeof(float) * 3) == 0);
++    };
++    for (const DrawMesh* dm : pieces) {
++        const MeshObj& skin = *dm->skin;
++        VitaBone want[4];
++        for (size_t i = 0; i < 4; ++i) {
++            want[i] = VitaBone{nullptr, Xfm{}};
++            if (i >= skin.bones.size() || skin.bones[i].name.empty()) continue;
++            const SceneObject* b = vitaResolve(skin.bones[i].name);
++            if (b && b->transformable()) want[i] = VitaBone{b, skin.bones[i].offset};
++        }
++        auto find = [&](const VitaBone& v) {
++            for (size_t k = 0; k < chunk.bones.size(); ++k)
++                if (same(chunk.bones[k], v)) return int(k);
++            return -1;
++        };
++        int added = 0;
++        for (int i = 0; i < 4; ++i) {
++            bool seen = find(want[i]) >= 0;
++            for (int j = 0; j < i && !seen; ++j) seen = same(want[j], want[i]);
++            if (!seen) ++added;
++        }
++        if (int(chunk.bones.size()) + added > Renderer::kVitaPaletteBones) finish();
++        uint8_t slot[4];
++        for (int i = 0; i < 4; ++i) {
++            int k = find(want[i]);
++            if (k < 0) k = int(chunk.bones.size()), chunk.bones.push_back(want[i]);
++            slot[i] = uint8_t(k);
++        }
++        const uint32_t base = uint32_t(verts.size());
++        for (Vertex v : vertices(*dm)) {
++            v.r = slot[0], v.g = slot[1], v.b = slot[2], v.a = slot[3];
++            verts.push_back(v);
++        }
++        for (uint32_t i : dm->indices) idx.push_back(base + i);
++    }
++    finish();
++    static int logged = 0;
++    if (logged < 12) {
++        ++logged;
++        size_t bones = 0;
++        for (const VitaChunk& c : merged.chunks) bones += c.bones.size();
++        SDL_Log("vita: merged %u character pieces into %u draws (%u palette bones)", unsigned(pieces.size()),
++                unsigned(merged.chunks.size()), unsigned(bones));
++    }
++    vitaMerged_.push_back(std::move(merged));
++    return &vitaMerged_.back();
++}
++
++void SceneRenderer::vitaDrawSingle(const VitaPiece& p) {
++    Renderer::RenderState st = p.st;
++    st.bones = boneMatrices(*p.dm->skin);
++    st.model = vitaIdentity_.m.data();
++    st.lighting = p.lit ? &p.light : nullptr;
++    renderer_.drawMesh(p.dm->mesh, p.mvp.m.data(), st);
++}
++
++void SceneRenderer::vitaFlush() {
++    if (vitaPieces_.empty()) return;
++    std::vector<VitaPiece> pieces;
++    pieces.swap(vitaPieces_);
++    std::vector<char> done(pieces.size(), 0);
++    std::vector<size_t> group;
++    std::vector<const DrawMesh*> dms;
++    for (size_t i = 0; i < pieces.size(); ++i) {
++        if (done[i]) continue;
++        // Consecutive pieces only: a merged mesh draws its triangles in the
++        // pieces' order, so blending gives what separate draws gave.
++        group.assign(1, i);
++        for (size_t j = i + 1; j < pieces.size() && vitaSameDraw(pieces[i], pieces[j]); ++j) group.push_back(j), done[j] = 1;
++        const VitaMerged* merged = nullptr;
++        if (group.size() > 1) {
++            dms.clear();
++            for (size_t k : group) dms.push_back(pieces[k].dm);
++            merged = vitaMergedFor(dms);
++        }
++        if (!merged) {
++            for (size_t k : group) vitaDrawSingle(pieces[k]);
++            continue;
++        }
++        const VitaPiece& p = pieces[i];
++        Renderer::RenderState st = p.st;
++        st.model = vitaIdentity_.m.data();
++        st.lighting = p.lit ? &p.light : nullptr;
++        st.vitaPalette = true;
++        for (const VitaChunk& c : merged->chunks) {
++            for (size_t b = 0; b < c.bones.size(); ++b) {
++                float* dst = vitaPalette_ + b * 16;
++                if (!c.bones[b].obj) {
++                    std::fill_n(dst, 16, 0.0f);
++                    continue;
++                }
++                Xfm x = compose(c.bones[b].offset, c.bones[b].obj->transformable()->world);
++                Mat4 m = Mat4::fromRowXfm(x.rot, x.pos);
++                std::copy_n(m.m.data(), 16, dst);
++            }
++            st.bones = vitaPalette_;
++            st.vitaBoneCount = int(c.bones.size());
++            renderer_.drawMesh(c.mesh, p.mvp.m.data(), st);
++        }
++    }
++}
+ #endif
+ 
+ void SceneRenderer::drawObject(const SceneObject& o, const Mat4& viewProj, const Mat4& model, int depth) {
+     if (depth > 32) return;  // guard against cyclic draw lists
++#if defined(__vita__)
++    // Anything but a mesh or a view draws now: the collected pieces go first.
++    if (vitaBatching_ && !o.mesh && !o.view && !o.environment) vitaFlush();
++#endif
+     if (o.environment) {
+         env_ = o.environment.get();
+         return;
+@@ -529,7 +726,11 @@ void SceneRenderer::drawObject(const SceneObject& o, const Mat4& viewProj, const
+         }
+ #endif
+         Renderer::RenderState st = liveState(*dm);
++#if defined(__vita__)
++        st.lighting = vitaLightingFor(dm->mat);
++#else
+         st.lighting = lightingFor(dm->mat);
++#endif
+         setMatFlags(st, dm->mat);
+         st.model = w.m.data();
+         // A negative scale (mirrored tiles) reverses the winding.
+@@ -538,13 +739,31 @@ void SceneRenderer::drawObject(const SceneObject& o, const Mat4& viewProj, const
+             float det = m[0] * (m[5] * m[10] - m[9] * m[6]) - m[4] * (m[1] * m[10] - m[9] * m[2]) + m[8] * (m[1] * m[6] - m[5] * m[2]);
+             st.mirrored = det < 0;
+         }
++#if defined(__vita__)
++        if (dm->skin && !vitaBatching_) st.bones = boneMatrices(*dm->skin);  // batched: computed when drawn
++#else
+         if (dm->skin) st.bones = boneMatrices(*dm->skin);
++#endif
+         // Skinned vertices are already in world space (uModel = identity for texgen).
+         Mat4 identity;
+         if (dm->skin) st.model = identity.m.data();
+         if (dm->stage) texgen(st, *dm->stage);
+         if (additiveGain_ != 1 && (st.blend == Blend::Add || st.blend == Blend::AddAlpha))
+             for (int k = 0; k < 3; ++k) st.tint[k] *= additiveGain_;
++#if defined(__vita__)
++        if (vitaBatching_) {
++            if (vitaBatchable(*dm, st)) {
++                VitaPiece p{dm, st, mvp, st.lighting != nullptr, Lighting{}};
++                if (st.lighting) p.light = *st.lighting;
++                p.st.bones = nullptr, p.st.model = nullptr, p.st.lighting = nullptr;
++                vitaPieces_.push_back(p);
++                drawChildren(o.mesh->draw, viewProj, model, depth);
++                return;
++            }
++            vitaFlush();  // in order before this piece (multi-pass, unskinned, ...)
++            if (dm->skin) st.bones = boneMatrices(*dm->skin);
++        }
++#endif
+         renderer_.drawMesh(dm->mesh, mvp.m.data(), st);
+         drawPasses(*dm, mvp.m.data(), st);
+         drawChildren(o.mesh->draw, viewProj, model, depth);
+diff --git a/gd-game-01/engine/src/render/scene_renderer.h b/gd-game-01/engine/src/render/scene_renderer.h
+index e0aa658..4282e76 100644
+--- a/gd-game-01/engine/src/render/scene_renderer.h
++++ b/gd-game-01/engine/src/render/scene_renderer.h
+@@ -2,6 +2,7 @@
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-11: PS Vita: name lookups, mesh keys and light lists cached per draw source (no per-draw string work).
+ // Modified by irxd on 2026-11-11: PS Vita: meshes outside the view (by a bounding sphere of their vertices) are not drawn.
++// Modified by irxd on 2026-11-11: PS Vita: a character's consecutive skinned pieces drawn as merged meshes with a bone palette.
+ #pragma once
+ 
+ #include <array>
+@@ -218,4 +219,57 @@ private:
+     const EnvironObj* env_ = nullptr;  // drawing an Environ selects it for what follows
+     Lighting lighting_;
+     float bones_[64];
++#if defined(__vita__)
++public:
++    // PS Vita: between begin and end, skinned pieces are collected and drawn
++    // at the end (or before anything else is drawn), consecutive pieces with
++    // the same draw settings as one merged mesh with a bone palette
++    // (Character::draw).
++    void vitaBeginBatch();
++    void vitaEndBatch();
++
++private:
++    struct VitaPiece {
++        const DrawMesh* dm;
++        Renderer::RenderState st;
++        Mat4 mvp;
++        bool lit;
++        Lighting light;
++    };
++    struct VitaBone {
++        const SceneObject* obj;  // null: a zero matrix (missing bone)
++        Xfm offset;
++    };
++    struct VitaChunk {
++        int mesh = 0;
++        std::vector<VitaBone> bones;
++    };
++    struct VitaMerged {
++        std::vector<const DrawMesh*> pieces;
++        std::vector<VitaChunk> chunks;
++    };
++    struct VitaRevision {
++        int revision;
++        bool dynamic;
++    };
++    bool vitaBatchable(const DrawMesh& dm, const Renderer::RenderState& st);
++    static bool vitaSameDraw(const VitaPiece& a, const VitaPiece& b);
++    const VitaMerged* vitaMergedFor(const std::vector<const DrawMesh*>& pieces);
++    void vitaDrawSingle(const VitaPiece& p);
++    void vitaFlush();
++    bool vitaBatching_ = false;
++    // lightingFor's last result, reused for the next piece with the same
++    // material and environ during one top-level draw (lights do not move
++    // within it); any other lightingFor call drops it.
++    const Lighting* vitaLightingFor(const MatObj* mat);
++    bool vitaLightValid_ = false;
++    const MatObj* vitaLightMat_ = nullptr;
++    const EnvironObj* vitaLightEnv_ = nullptr;
++    const Lighting* vitaLightResult_ = nullptr;
++    std::vector<VitaPiece> vitaPieces_;
++    std::vector<VitaMerged> vitaMerged_;
++    std::unordered_map<const DrawMesh*, VitaRevision> vitaRevisions_;
++    float vitaPalette_[Renderer::kVitaPaletteBones * 16];
++    Mat4 vitaIdentity_;
++#endif
+ };
+diff --git a/gd-game-01/engine/src/scene/character.cpp b/gd-game-01/engine/src/scene/character.cpp
+index 529b39f..7c318fc 100644
+--- a/gd-game-01/engine/src/scene/character.cpp
++++ b/gd-game-01/engine/src/scene/character.cpp
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-11: PS Vita: index-based skeleton for blending, world update and servos (no per-frame string maps).
++// Modified by irxd on 2026-11-11: PS Vita: a character's consecutive skinned pieces drawn as merged meshes with a bone palette.
+ #include "scene/character.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -1534,7 +1535,13 @@ void Character::updateWorld() {
+ }
+ 
+ void Character::draw(const Mat4& viewProj, const EnvironObj* env) {
++#if defined(__vita__)
++    bodyRenderer_->vitaBeginBatch();  // PS Vita: skinned pieces merged into fewer draws
++    for (const std::string& n : bodyDraws_) bodyRenderer_->draw(n, viewProj, Mat4{}, env);
++    bodyRenderer_->vitaEndBatch();
++#else
+     for (const std::string& n : bodyDraws_) bodyRenderer_->draw(n, viewProj, Mat4{}, env);
++#endif
+     if (guitarRenderer_)
+         for (const std::string& n : guitarDraws_) guitarRenderer_->draw(n, viewProj, Mat4{}, env);
+ }

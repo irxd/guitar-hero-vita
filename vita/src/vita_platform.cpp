@@ -138,9 +138,9 @@ void switchPhase(const char* name, uint64_t now) {
 struct DrawTimer {
     uint64_t start = gPhaseLevel >= 2 ? SDL_GetTicksNS() : 0;
     ~DrawTimer() {
-        if (gPhaseLevel < 2 || gPhase < 0) return;
-        gPhases[gPhase].submitNs += SDL_GetTicksNS() - start;
-        ++gPhases[gPhase].draws;
+        if (gPhaseLevel < 1 || gPhase < 0) return;
+        ++gPhases[gPhase].draws;  // counted from level 1 (free), timed from level 2
+        if (gPhaseLevel >= 2) gPhases[gPhase].submitNs += SDL_GetTicksNS() - start;
     }
 };
 
@@ -496,6 +496,16 @@ GLuint gVertexIdBuffer = 0;
 constexpr GLsizei kVertexIdCount = 256;
 GLuint gVertexIdLocation = 15;
 
+// Uniform lookups: a name the program does not have is logged (once each).
+using GetUniformLocationFn = GLint (*)(GLuint, const GLchar*);
+GetUniformLocationFn realGetUniformLocation = nullptr;
+GLint hookGetUniformLocation(GLuint program, const GLchar* name) {
+    const GLint at = realGetUniformLocation(program, name);
+    static std::unordered_set<std::string> missing;
+    if (at < 0 && name && missing.insert(name).second) SDL_Log("vita: program %u has no uniform %s", program, name);
+    return at;
+}
+
 void hookUseProgram(GLuint program) {
     gCurrentProgram = program;
     realUseProgram(program);
@@ -566,6 +576,72 @@ void logMemory(const char* when) {
             unsigned(vglMemFree(VGL_MEM_PHYCONT) >> 10), unsigned(vglMemFree(VGL_MEM_EXTERNAL) >> 10));
 }
 
+// Bone palette for merged character meshes (patch 0019): renderer.cpp's
+// vertex shader skins with `mat4 uBones[4]`, bone i for weight i. Here it
+// takes `vec4 uBoneRows[24]` (8 affine bones, 3 rows each); uSkin 1 keeps
+// bone i for weight i, uSkin 2 reads each weight's palette index from the
+// vertex colour bytes (skinned meshes have white vertex colours, which the
+// shader then substitutes). All three texts must match, else the shader is
+// left as is and Renderer finds no uBoneRows (merging stays off).
+bool applyBonePalette(std::string& src) {
+    struct Edit {
+        const char* from;
+        std::string to;
+    };
+    // No array index that varies per vertex: indexed by each vertex's own
+    // palette index, the Vita's shader compiler skinned some vertices with the
+    // wrong bone (hardware, 2026-11-11); a loop with equal() crashed it. Each
+    // slot k, unrolled with constant indices, adds its rows weighted by the
+    // vertex's weights on k: the blended matrix sum(w_i * P[idx_i]), applied once.
+    std::string skin =
+        "        vec4 p1 = vec4(aPos, 1.0);\n"
+        "        vec4 bi = uSkin == 2 ? floor(aColor * 255.0 + 0.5) : vec4(0.0, 1.0, 2.0, 3.0);\n"
+        "        vec4 m0 = vec4(0.0);\n"
+        "        vec4 m1 = vec4(0.0);\n"
+        "        vec4 m2 = vec4(0.0);\n"
+        "        float wk;\n";
+    for (int k = 0; k < 8; ++k) {
+        char line[320];
+        SDL_snprintf(line, sizeof line,
+                     "        wk = dot(aWeights, vec4(1.0) - step(vec4(0.5), abs(bi - vec4(%d.0))));\n"
+                     "        m0 += wk * uBoneRows[%d];\n"
+                     "        m1 += wk * uBoneRows[%d];\n"
+                     "        m2 += wk * uBoneRows[%d];\n",
+                     k, 3 * k, 3 * k + 1, 3 * k + 2);
+        skin += line;
+    }
+    skin += "        pos.xyz = vec3(dot(m0, p1), dot(m1, p1), dot(m2, p1));\n"
+            "        normal = vec3(dot(m0.xyz, aNormal), dot(m1.xyz, aNormal), dot(m2.xyz, aNormal));\n";
+    const Edit kEdits[] = {
+        {"uniform mat4 uBones[4];", "uniform vec4 uBoneRows[24];  // PS Vita: bone palette, 3 rows per bone"},
+        {"        for (int i = 0; i < 4; ++i) {\n"
+         "            pos += aWeights[i] * (uBones[i] * vec4(aPos, 1.0));\n"
+         "            normal += aWeights[i] * (mat3(uBones[i]) * aNormal);\n"
+         "        }\n",
+         skin},
+        {"uTint : aColor * uTint, vec4(1.0));", "uTint : (uSkin == 2 ? vec4(1.0) : aColor) * uTint, vec4(1.0));"},
+    };
+    if (src.find("uniform mat4 uBones[4];") == std::string::npos) return false;  // not the scene shader
+    // Off unless GD01_VITA_MERGE=1 (args.txt): libshacccg crashed compiling
+    // this blended form, and the per-vertex-index form it did compile skinned
+    // some band members wrongly (hardware, 2026-11-11). Without the rewrite
+    // the shader is upstream's and characters draw piece by piece.
+    const char* merge = std::getenv("GD01_VITA_MERGE");
+    if (!(merge && merge[0] == '1')) return false;
+    std::string out = src;
+    for (const Edit& e : kEdits) {
+        const size_t at = out.find(e.from);
+        if (at == std::string::npos || out.find(e.from, at + 1) != std::string::npos) {
+            SDL_Log("vita: bone palette: shader text not found, merged character meshes OFF: %.40s", e.from);
+            return false;
+        }
+        out.replace(at, std::strlen(e.from), e.to);
+    }
+    src = std::move(out);
+    SDL_Log("vita: bone palette: scene shader skins with uBoneRows[24]");
+    return true;
+}
+
 void hookShaderSource(GLuint shader, GLsizei count, const GLchar* const* strings, const GLint* lengths) {
     std::string src;
     for (GLsizei i = 0; i < count; ++i)
@@ -576,6 +652,7 @@ void hookShaderSource(GLuint shader, GLsizei count, const GLchar* const* strings
         SDL_snprintf(path, sizeof path, "%s/%u.orig.glsl", kShaderDir, shader);
         saveText(path, src);
     }
+    applyBonePalette(src);
     if (kRewriteToEs100) {
         vita::Es100Result es = vita::toGlslEs100(src, info.stage);
         info.attributes = std::move(es.attributes);
@@ -643,7 +720,11 @@ void initVitaGl() {
         const char* v = std::getenv(name);
         return v && *v ? std::atoi(v) : fallback;
     };
-    const int displayScenes = envInt("GD01_VITA_DISPLAY_SCENES", 0), fboScenes = envInt("GD01_VITA_FBO_SCENES", 0);
+    // FBOs default to 4 scenes in flight (vitaGL's is 1): with one, starting
+    // a scene on a render target waited for the GPU to finish its last one,
+    // so the six crowd impostors stalled the CPU up to 7 ms a frame in busy
+    // shots (hardware, 2026-11-11).
+    const int displayScenes = envInt("GD01_VITA_DISPLAY_SCENES", 0), fboScenes = envInt("GD01_VITA_FBO_SCENES", 4);
     const int paramMb = envInt("GD01_VITA_PARAM_MB", 0);
     gPhaseLevel = envInt("GD01_VITA_PHASES", 0);
     {
@@ -854,6 +935,38 @@ bool __wrap_SDL_GL_DestroyContext(SDL_GLContext /*context*/) { return true; }
 bool __wrap_SDL_GL_MakeCurrent(SDL_Window* /*window*/, SDL_GLContext /*context*/) { return true; }
 
 bool __wrap_SDL_GL_SwapWindow(SDL_Window* /*window*/) {
+    // Debug screenshots: GD01_VITA_SHOT=<frame>,<frame>,... (args.txt) writes
+    // those frames' screen as raw RGBA, bottom row first, to
+    // ux0:data/gd01/shot_<frame>.rgba (960x544). Off unless asked for.
+    static unsigned frame = 0;
+    static const std::vector<unsigned> shots = [] {
+        std::vector<unsigned> v;
+        if (const char* e = std::getenv("GD01_VITA_SHOT"))
+            for (const char* q = e; *q;) {
+                char* end = nullptr;
+                const unsigned long n = std::strtoul(q, &end, 10);
+                if (end == q) break;
+                v.push_back(unsigned(n));
+                q = *end ? end + 1 : end;
+            }
+        return v;
+    }();
+    if (std::find(shots.begin(), shots.end(), ++frame) != shots.end()) {
+        GLint fb = 0;
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fb);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        std::vector<uint8_t> px(size_t(kScreenWidth) * kScreenHeight * 4);
+        glReadPixels(0, 0, kScreenWidth, kScreenHeight, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+        glBindFramebuffer(GL_FRAMEBUFFER, GLuint(fb));
+        char path[64];
+        SDL_snprintf(path, sizeof path, "%sshot_%u.rgba", kDataDir, frame);
+        const SceUID fd = sceIoOpen(path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+        if (fd >= 0) {
+            sceIoWrite(fd, px.data(), SceSize(px.size()));
+            sceIoClose(fd);
+        }
+        SDL_Log("vita: screenshot frame %u -> %s", frame, path);
+    }
     const uint64_t swapStart = SDL_GetTicksNS();
     vglSwapBuffers(GL_FALSE);
     const uint64_t now = SDL_GetTicksNS();
@@ -988,6 +1101,10 @@ SDL_FunctionPointer __wrap_SDL_GL_GetProcAddress(const char* name) {
         if (std::strcmp(name, "glUseProgram") == 0) {
             realUseProgram = reinterpret_cast<UseProgramFn>(fn);
             return reinterpret_cast<SDL_FunctionPointer>(hookUseProgram);
+        }
+        if (std::strcmp(name, "glGetUniformLocation") == 0) {
+            realGetUniformLocation = reinterpret_cast<GetUniformLocationFn>(fn);
+            return reinterpret_cast<SDL_FunctionPointer>(hookGetUniformLocation);
         }
         if (std::strcmp(name, "glDrawArrays") == 0) {
             realDrawArrays = reinterpret_cast<DrawArraysFn>(fn);
