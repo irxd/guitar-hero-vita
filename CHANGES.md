@@ -45,6 +45,8 @@ platforms build exactly as upstream.
 | 2026-11-11 | `0015-vita-frame-cap.patch`, `0018-vita-crowd-lod.patch` (updated) | `gd-game-01/engine/src/app.cpp`, `gd-game-01/engine/src/ui/select_panels.cpp`, `gd-game-01/engine/src/render/crowd_renderer.h`, `gd-game-01/engine/src/render/crowd_renderer.cpp`, `gd-game-01/engine/src/render/venue_renderer.cpp` | PS Vita: Crowd is a check (`crowd`, default on): on, at most 8 3D members at 30 and 60 FPS; off, no crowd at 30 and 60 (`CrowdRenderer::vitaShown`, no longer tied to the frame rate). The 60 FPS label drops "(No Crowd)" |
 | 2026-11-11 | `0015-vita-frame-cap.patch` (updated) | `gd-game-01/engine/src/ui/select_panels.cpp` | PS Vita: a shorter Crowd help text |
 | 2026-11-11 | `0004-vita-joypad-frets.patch` (updated) | `gd-game-01/engine/src/input/input.cpp` | PS Vita: default frets D-pad Left (green), L (red), R (yellow), Circle (blue), Cross (orange); strum stays on D-pad Up / Down; in a song D-pad Left and Cross are only frets (no menu Left / Confirm) |
+| 2026-11-11 | `0020-vita-async-song-preview.patch` | `gd-game-01/engine/src/app.cpp`, `gd-game-01/engine/src/data/vgs.h`, `gd-game-01/engine/src/data/vgs.cpp`, `gd-game-01/engine/src/data/iso9660.cpp` | PS Vita: `songPreview` hands the preview to a worker thread (`vita::PreviewLoader`) and `vitaPollPreview` starts it when built; a windowed `VgsStream` constructor reads only the preview's blocks (~2 MB, not the whole 18-36 MB file); `RandomFile::read` is locked so the worker can read the disc image |
+| 2026-11-11 | `0021-vita-free-scene-resources.patch` | `gd-game-01/engine/src/render/renderer.h`, `gd-game-01/engine/src/render/renderer.cpp`, `gd-game-01/engine/src/render/scene_renderer.h`, `gd-game-01/engine/src/render/scene_renderer.cpp` | PS Vita: `Renderer::vitaDeleteTexture` / `vitaDeleteMesh`; `~SceneRenderer` frees the textures and meshes it created (upstream frees GL resources only at shutdown: every venue's stayed in memory) |
 
 ## New files
 
@@ -59,6 +61,7 @@ platforms build exactly as upstream.
 | 2026-11-10 | `vita/src/vita_profile.h` | Frame phase timing API used by patches 0008 and 0009 (implemented in `vita_platform.cpp`: per phase ms, draw calls, time inside draw calls and framebuffer readbacks) |
 | 2026-11-11 | `vita/src/vita_display.h` | Display pacing API used by patch 0015 (implemented in `vita_platform.cpp` with vitaGL's `eglSwapInterval`) |
 | 2026-11-11 | `tools/build-vitagl.sh` | Builds vitaGL from source with the port's build options (linked by `tools/build-vita.sh` when present) |
+| 2026-11-11 | `vita/src/preview_loader.h`, `vita/src/preview_loader.cpp` | Song previews built on a worker thread, used by patch 0020 |
 | 2026-11-10 | `vita/compat/dlfcn.h` | Stub dynamic-loader header (the Vita has none) |
 | 2026-11-10 | `vita/tests/` | Desktop checks for the shader rewrite and the palette packing |
 | 2026-11-10 | `tools/` | Toolchain setup, desktop and Vita builds, patch stack, shader dump and validation, GPU memory probe, crash dump decoding, movie decode benchmark, hardware build/deploy/run loop (`vita-loop.sh`) |

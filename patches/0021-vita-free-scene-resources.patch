@@ -1,0 +1,123 @@
+diff --git a/gd-game-01/engine/src/render/renderer.cpp b/gd-game-01/engine/src/render/renderer.cpp
+index b79b0df..db4e5b9 100644
+--- a/gd-game-01/engine/src/render/renderer.cpp
++++ b/gd-game-01/engine/src/render/renderer.cpp
+@@ -3,6 +3,7 @@
+ // Modified by irxd on 2026-11-11: PS Vita: frame phase timing of drawMesh (diagnostic).
+ // Modified by irxd on 2026-11-11: PS Vita: Max FPS 30 (default, steady) or 60, paced by vitaGL's vblank interval.
+ // Modified by irxd on 2026-11-11: PS Vita: bone palette skinning, so a character's skinned pieces can be merged into fewer draws.
++// Modified by irxd on 2026-11-11: PS Vita: GPU textures and meshes freed with their SceneRenderer (they leaked per venue).
+ #include "render/renderer.h"
+ #if defined(__vita__)
+ #include "vita_display.h"  // the Vita port's vita/src: vblank interval
+@@ -341,6 +342,23 @@ void Renderer::shutdown() {
+     context_ = nullptr;
+ }
+ 
++#if defined(__vita__)
++void Renderer::vitaDeleteTexture(int texture) {
++    if (core_ || !context_ || texture <= 0 || size_t(texture) >= textures_.size() || !textures_[size_t(texture)]) return;
++    gl::glDeleteTextures(1, &textures_[size_t(texture)]);
++    textures_[size_t(texture)] = 0;
++}
++
++void Renderer::vitaDeleteMesh(int mesh) {
++    if (core_ || !context_ || mesh <= 0 || size_t(mesh) >= meshes_.size()) return;
++    GpuMesh& m = meshes_[size_t(mesh)];
++    if (m.vbo) gl::glDeleteBuffers(1, &m.vbo);
++    if (m.ibo) gl::glDeleteBuffers(1, &m.ibo);
++    if (m.vao) gl::glDeleteVertexArrays(1, &m.vao);
++    m = GpuMesh{};  // count 0: drawMesh skips it
++}
++#endif
++
+ int Renderer::createTexture(const Image& image, bool repeat) {
+     if (core_) return core_->createTexture(image, repeat);
+     unsigned id = 0;
+diff --git a/gd-game-01/engine/src/render/renderer.h b/gd-game-01/engine/src/render/renderer.h
+index 3bc0b6d..5670f4c 100644
+--- a/gd-game-01/engine/src/render/renderer.h
++++ b/gd-game-01/engine/src/render/renderer.h
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-11: PS Vita: bone palette skinning, so a character's skinned pieces can be merged into fewer draws.
++// Modified by irxd on 2026-11-11: PS Vita: GPU textures and meshes freed with their SceneRenderer (they leaked per venue).
+ #pragma once
+ 
+ #include <SDL3/SDL.h>
+@@ -124,6 +125,14 @@ public:
+ 
+     // Static GPU meshes (indexed triangles). Returns a mesh handle (0 = none).
+     int createMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
++#if defined(__vita__)
++    // PS Vita: frees a texture / mesh (its handle draws nothing afterwards;
++    // handles are not reused). Upstream frees them at shutdown only, and the
++    // Vita's memory did not hold every venue's (hardware, 2026-11-11: ~20 MB
++    // more per song played, the 5th venue load failed).
++    void vitaDeleteTexture(int texture);
++    void vitaDeleteMesh(int mesh);
++#endif
+     // Replaces a mesh's contents (for text that changes).
+     void updateMesh(int mesh, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
+     struct RenderState {
+diff --git a/gd-game-01/engine/src/render/scene_renderer.cpp b/gd-game-01/engine/src/render/scene_renderer.cpp
+index 21e21fb..6404b51 100644
+--- a/gd-game-01/engine/src/render/scene_renderer.cpp
++++ b/gd-game-01/engine/src/render/scene_renderer.cpp
+@@ -3,6 +3,7 @@
+ // Modified by irxd on 2026-11-11: PS Vita: name lookups, mesh keys and light lists cached per draw source (no per-draw string work).
+ // Modified by irxd on 2026-11-11: PS Vita: meshes outside the view (by a bounding sphere of their vertices) are not drawn.
+ // Modified by irxd on 2026-11-11: PS Vita: a character's consecutive skinned pieces drawn as merged meshes with a bone palette.
++// Modified by irxd on 2026-11-11: PS Vita: GPU textures and meshes freed with their SceneRenderer (they leaked per venue).
+ #include "render/scene_renderer.h"
+ 
+ #include "render/gl.h"
+@@ -281,6 +282,22 @@ Renderer::RenderState SceneRenderer::liveState(const DrawMesh& dm) {
+     return st;
+ }
+ 
++#if defined(__vita__)
++// Every handle this renderer created lives in one of its caches; textures a
++// replaceTexture swapped out stay (rare: menu screens).
++SceneRenderer::~SceneRenderer() {
++    for (const auto& [key, id] : textures_) renderer_.vitaDeleteTexture(id);
++    for (const auto& [key, dm] : meshes_) {
++        renderer_.vitaDeleteMesh(dm.mesh);
++        for (const DrawMesh::Pass& p : dm.passes) renderer_.vitaDeleteMesh(p.mesh);
++    }
++    for (const auto& [key, id] : particleMeshes_) renderer_.vitaDeleteMesh(id);
++    for (int id : dynamic_) renderer_.vitaDeleteMesh(id);
++    for (const VitaMerged& m : vitaMerged_)
++        for (const VitaChunk& chunk : m.chunks) renderer_.vitaDeleteMesh(chunk.mesh);
++}
++#endif
++
+ void SceneRenderer::replaceTexture(const std::string& tex, const Image& image) {
+     if (image.width <= 0) return;
+     std::map<int, int> swap;  // old handle -> new
+diff --git a/gd-game-01/engine/src/render/scene_renderer.h b/gd-game-01/engine/src/render/scene_renderer.h
+index 4282e76..023f438 100644
+--- a/gd-game-01/engine/src/render/scene_renderer.h
++++ b/gd-game-01/engine/src/render/scene_renderer.h
+@@ -3,6 +3,7 @@
+ // Modified by irxd on 2026-11-11: PS Vita: name lookups, mesh keys and light lists cached per draw source (no per-draw string work).
+ // Modified by irxd on 2026-11-11: PS Vita: meshes outside the view (by a bounding sphere of their vertices) are not drawn.
+ // Modified by irxd on 2026-11-11: PS Vita: a character's consecutive skinned pieces drawn as merged meshes with a bone palette.
++// Modified by irxd on 2026-11-11: PS Vita: GPU textures and meshes freed with their SceneRenderer (they leaked per venue).
+ #pragma once
+ 
+ #include <array>
+@@ -22,6 +23,12 @@
+ class SceneRenderer {
+ public:
+     SceneRenderer(Renderer& renderer, const Scene& scene);
++#if defined(__vita__)
++    // PS Vita: frees the textures and meshes this renderer created.
++    ~SceneRenderer();
++    SceneRenderer(const SceneRenderer&) = delete;
++    SceneRenderer& operator=(const SceneRenderer&) = delete;
++#endif
+ 
+     // Draws a View (recursively, in draw-list order) or a Mesh. `model` is
+     // applied after each object's own world transform.

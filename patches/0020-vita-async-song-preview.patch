@@ -1,0 +1,280 @@
+diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
+index 1173acc..5d47366 100644
+--- a/gd-game-01/engine/src/app.cpp
++++ b/gd-game-01/engine/src/app.cpp
+@@ -7,6 +7,7 @@
+ // Modified by irxd on 2026-11-10: PS Vita: frame phase timing marks for gd01.log (frame).
+ // Modified by irxd on 2026-11-11: PS Vita: Max FPS 30 (default, steady) or 60, paced by vitaGL's vblank interval.
+ // Modified by irxd on 2026-11-11: PS Vita: Performance Mode Notes Only (no venue) and the Crowd setting.
++// Modified by irxd on 2026-11-11: PS Vita: song previews read only their window of the .vgs, on a worker thread (songPreview).
+ #include "app.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -52,6 +53,7 @@
+ #include "video/pss.h"
+ #if defined(__vita__)
+ #include "movie_worker.h"  // the Vita port's vita/src: movies decoded on another core
++#include "preview_loader.h"  // the Vita port's vita/src: song previews built on another core
+ #include "vita_profile.h"  // the Vita port's vita/src: frame phase timing
+ #define GD01_VITA_PHASE(name) vita::profilePhase(name)
+ #else
+@@ -574,6 +576,15 @@ private:
+     void playerEvent(const PlayerEvent& ev, int player = 0);
+     void pollMenuMusic();
+     bool menuMusicOn_ = false, previewing_ = false;
++#if defined(__vita__)
++    // PS Vita: previews built on a worker (vita/src/preview_loader.h); the
++    // waiting one's ticket and mix. Declared after data_: joined before it goes.
++    std::unique_ptr<vita::PreviewLoader> vitaPreviews_;
++    uint64_t vitaPreviewTicket_ = 0;
++    std::vector<Mixer::Track> vitaPreviewTracks_;
++    double vitaPreviewStartMs_ = 0, vitaPreviewEndMs_ = 0;
++    void vitaPollPreview();
++#endif
+     std::string menuLoop_;  // the metamusic loop picked when the meta panel loaded
+     // meta play_movie (FUN_0024edf8): one picture per NTSC frame, 48 kHz PCM on its
+     // own stream, everything else frozen and silent; Green / X / Start skip.
+@@ -1572,10 +1583,35 @@ void App::endMovie() {
+ void App::songPreview(const std::string& id) {
+     auto it = std::find_if(songs_.begin(), songs_.end(), [&](const SongInfo& s) { return s.id == id; });
+     if (id.empty() || it == songs_.end()) {
++#if defined(__vita__)
++        vitaPreviewTicket_ = 0;  // a preview still loading is not started
++#endif
+         previewing_ = false;
+         mixer_.stopMusic(1000);
+         return;
+     }
++#if defined(__vita__)
++    // PS Vita: the worker reads the preview's window (plus 1 s) while the
++    // song list keeps moving; vitaPollPreview starts it. The menu music
++    // waits as for a playing preview.
++    if (!vitaPreviews_) vitaPreviews_ = std::make_unique<vita::PreviewLoader>();
++    vitaPreviewTracks_.assign(std::max(it->vols.size(), it->pans.size()), Mixer::Track{});
++    for (size_t c = 0; c < vitaPreviewTracks_.size(); ++c) {
++        if (c < it->vols.size()) vitaPreviewTracks_[c].volume = it->vols[c];
++        if (c < it->pans.size()) vitaPreviewTracks_[c].pan = it->pans[c];
++    }
++    vitaPreviewStartMs_ = it->previewStartMs, vitaPreviewEndMs_ = it->previewEndMs;
++    const std::string path = it->audioPath;
++    const double startMs = it->previewStartMs, endMs = it->previewEndMs > 0 ? it->previewEndMs + 1000 : 0;
++    GameData* data = data_.get();
++    vitaPreviewTicket_ = vitaPreviews_->request(
++        [data, path, startMs, endMs] {
++            auto read = [data, &path](uint64_t offset, uint8_t* dst, size_t n) { return data->readRange(path, offset, dst, n); };
++            return std::make_unique<VgsStream>(read, startMs, endMs);
++        },
++        id);
++    previewing_ = true;
++#else
+     try {
+         auto vgs = std::make_unique<VgsStream>(data_->read(it->audioPath));
+         std::vector<Mixer::Track> tracks(vgs->channels());
+@@ -1588,8 +1624,24 @@ void App::songPreview(const std::string& id) {
+     } catch (const std::exception& ex) {
+         SDL_Log("preview %s: %s", id.c_str(), ex.what());
+     }
++#endif
+ }
+ 
++#if defined(__vita__)
++// PS Vita: starts the requested preview once the worker has built it, while
++// the song list still wants it (a song start clears previewing_).
++void App::vitaPollPreview() {
++    if (!vitaPreviews_ || !vitaPreviewTicket_) return;
++    std::unique_ptr<VgsStream> vgs = vitaPreviews_->take(vitaPreviewTicket_);
++    if (!vgs) return;
++    vitaPreviewTicket_ = 0;
++    if (!previewing_ || screen_ != Screen::Menu) return;
++    std::vector<Mixer::Track> tracks = vitaPreviewTracks_;
++    tracks.resize(size_t(vgs->channels()));
++    mixer_.playMusic(std::move(vgs), std::move(tracks), vitaPreviewStartMs_, vitaPreviewEndMs_, true, 1000, 1.0f);
++}
++#endif
++
+ // Metamusic (FUN_0020dcd8 / FUN_0020e588): when the meta panel loads it
+ // picks one of config/synth.dta (metamusic (volume 0.6) (music meta_loop1a
+ // ... meta_loop1g)) at random and plays it looping; meta_music_stop /
+@@ -2624,6 +2676,9 @@ void App::frame() {
+         float dt = uiTicks_ ? float(now - uiTicks_) / 1e6f : 16.0f;
+         uiTicks_ = now;
+         ui_->update(std::min(dt, 100.0f));
++#if defined(__vita__)
++        vitaPollPreview();
++#endif
+         pollMenuMusic();
+         pollUserFiles();
+         if (screen_ == Screen::Menu) ui_->draw();
+diff --git a/gd-game-01/engine/src/data/iso9660.cpp b/gd-game-01/engine/src/data/iso9660.cpp
+index 8bd46ad..d2d56ed 100644
+--- a/gd-game-01/engine/src/data/iso9660.cpp
++++ b/gd-game-01/engine/src/data/iso9660.cpp
+@@ -1,8 +1,12 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-11: PS Vita: RandomFile::read locked (song previews read on a worker thread).
+ #include "data/iso9660.h"
+ 
+ #include <cctype>
++#if defined(__vita__)
++#include <mutex>
++#endif
+ #include <stdexcept>
+ #include <string>
+ #ifdef _WIN32
+@@ -81,6 +85,12 @@ std::unique_ptr<RandomFile> RandomFile::open(const std::string& path) {
+ RandomFile::~RandomFile() { std::fclose(f_); }
+ 
+ void RandomFile::read(uint64_t offset, void* dst, size_t size) {
++#if defined(__vita__)
++    // PS Vita: song previews read the disc image on a worker thread; one
++    // seek + read at a time on the shared handle.
++    static std::mutex lock;
++    std::lock_guard<std::mutex> hold(lock);
++#endif
+     if (offset + size > size_ || seek64(f_, offset) != 0 || std::fread(dst, 1, size, f_) != size)
+         throw std::runtime_error("read beyond end of file");
+ }
+diff --git a/gd-game-01/engine/src/data/vgs.cpp b/gd-game-01/engine/src/data/vgs.cpp
+index 87feab8..6ccfe0e 100644
+--- a/gd-game-01/engine/src/data/vgs.cpp
++++ b/gd-game-01/engine/src/data/vgs.cpp
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-11: PS Vita: song previews read only their window of the .vgs, on a worker thread.
+ #include "data/vgs.h"
+ 
+ #include <algorithm>
+@@ -36,13 +37,71 @@ VgsStream::VgsStream(Bytes data) : data_(std::move(data)) {
+     for (const auto& ch : channels_) lengthFrames_ = std::max<uint64_t>(lengthFrames_, ch.blocks.size() * 28);
+ }
+ 
++#if defined(__vita__)
++VgsStream::VgsStream(const std::function<size_t(uint64_t, uint8_t*, size_t)>& read, double startMs, double endMs) {
++    Bytes header(kHeaderSize);
++    if (read(0, header.data(), header.size()) != header.size()) throw std::runtime_error("VGS file cut short");
++    ByteReader r(header);
++    if (r.str(4) != "VgS!") throw std::runtime_error("not a VGS file");
++    if (r.u32le() != 2) throw std::runtime_error("unsupported VGS version");
++    uint64_t total = 0;  // blocks of the longest channel
++    for (int i = 0; i < 15; ++i) {
++        uint32_t rate = r.u32le(), blocks = r.u32le();
++        if (rate == 0) break;
++        if (channels_.empty()) sampleRate_ = static_cast<int>(rate);
++        else if (static_cast<int>(rate) != sampleRate_) throw std::runtime_error("VGS channels differ in sample rate");
++        channels_.emplace_back();
++        total = std::max<uint64_t>(total, blocks);
++    }
++    if (channels_.empty()) throw std::runtime_error("VGS file has no channels");
++    lengthFrames_ = total * 28;
++    const size_t n = channels_.size();
++    const double framesPerMs = sampleRate_ / 1000.0;
++    const uint64_t first = std::min<uint64_t>(uint64_t(std::max(0.0, startMs) * framesPerMs) / 28, total);
++    const uint64_t end = endMs > 0 ? std::min<uint64_t>(uint64_t(endMs * framesPerMs) / 28 + 1, total) : total;
++    vitaFirstBlock_ = static_cast<size_t>(first);
++    data_.resize(static_cast<size_t>(std::max(end, first) - first) * n * kBlockSize);
++    // In pieces: GameData's file handle is shared (locked per read) with the
++    // main thread, which waits at most one piece.
++    constexpr size_t kPiece = 256 * 1024;
++    size_t got = 0;
++    while (got < data_.size()) {
++        const size_t want = std::min(kPiece, data_.size() - got);
++        const size_t k = read(kHeaderSize + first * n * kBlockSize + got, data_.data() + got, want);
++        got += k;
++        if (k < want) break;
++    }
++    data_.resize(got - got % kBlockSize);
++    // Each block by its channel ID, as the full-file constructor: the song
++    // files end with a short uneven round (channels 0 and 1 one block
++    // longer), which only the last blocks of a window can reach.
++    for (size_t off = 0; off < data_.size(); off += kBlockSize) {
++        const size_t ch = data_[off + 1] & 0x7F;
++        if (ch < n) channels_[ch].blocks.push_back(static_cast<uint32_t>(off));
++    }
++}
++#endif
++
+ void VgsStream::decodeBlock(Channel& ch) {
+     ch.pos = 0;
++#if defined(__vita__)
++    if (ch.nextBlock < vitaFirstBlock_) {  // before a window: silence
++        ch.samples.fill(0);
++        ++ch.nextBlock;
++        return;
++    }
++    if (ch.nextBlock - vitaFirstBlock_ >= ch.blocks.size()) {
++        ch.samples.fill(0);
++        return;
++    }
++    const uint8_t* b = &data_[ch.blocks[ch.nextBlock++ - vitaFirstBlock_]];
++#else
+     if (ch.nextBlock >= ch.blocks.size()) {
+         ch.samples.fill(0);
+         return;
+     }
+     const uint8_t* b = &data_[ch.blocks[ch.nextBlock++]];
++#endif
+     int shift = b[0] & 0x0F;
+     int filter = std::min(b[0] >> 4, 4);
+     int f0 = kFilters[filter][0], f1 = kFilters[filter][1];
+@@ -69,10 +128,15 @@ void VgsStream::decode(float* const* out, int frames) {
+ 
+ void VgsStream::seek(uint64_t frame) {
+     for (Channel& ch : channels_) {
+-        ch.nextBlock = std::min<size_t>(frame / 28, ch.blocks.size());
++#if defined(__vita__)
++        const size_t blocks = vitaFirstBlock_ + ch.blocks.size();  // a window ends there
++#else
++        const size_t blocks = ch.blocks.size();
++#endif
++        ch.nextBlock = std::min<size_t>(frame / 28, blocks);
+         ch.s1 = ch.s2 = 0;
+         ch.pos = 28;
+-        if (frame % 28 && ch.nextBlock < ch.blocks.size()) {
++        if (frame % 28 && ch.nextBlock < blocks) {
+             decodeBlock(ch);
+             ch.pos = static_cast<int>(frame % 28);
+         }
+diff --git a/gd-game-01/engine/src/data/vgs.h b/gd-game-01/engine/src/data/vgs.h
+index dfd4df7..348c244 100644
+--- a/gd-game-01/engine/src/data/vgs.h
++++ b/gd-game-01/engine/src/data/vgs.h
+@@ -1,9 +1,13 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-11: PS Vita: song previews read only their window of the .vgs, on a worker thread.
+ #pragma once
+ 
+ #include <array>
+ #include <cstdint>
++#if defined(__vita__)
++#include <functional>
++#endif
+ #include <string>
+ #include <vector>
+ 
+@@ -15,6 +19,15 @@ class VgsStream {
+ public:
+     // Throws std::runtime_error on malformed input.
+     explicit VgsStream(Bytes data);
++#if defined(__vita__)
++    // PS Vita: only the blocks of [startMs, endMs] (endMs <= 0: to the end)
++    // of a file whose channels alternate block by block, as every song .vgs
++    // on the disc does (up to its last few blocks); `read(offset, dst, n)`
++    // reads the file and returns the count. Outside the window it decodes
++    // silence. A song preview reads ~2 MB this way instead of the whole
++    // 18-36 MB file.
++    VgsStream(const std::function<size_t(uint64_t, uint8_t*, size_t)>& read, double startMs, double endMs);
++#endif
+ 
+     int channels() const { return static_cast<int>(channels_.size()); }
+     int sampleRate() const { return sampleRate_; }
+@@ -40,4 +53,7 @@ private:
+     std::vector<Channel> channels_;
+     int sampleRate_ = 44100;
+     uint64_t lengthFrames_ = 0;
++#if defined(__vita__)
++    size_t vitaFirstBlock_ = 0;  // the window's first block index (0: the whole file)
++#endif
+ };
