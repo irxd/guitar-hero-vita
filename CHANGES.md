@@ -42,6 +42,7 @@ platforms build exactly as upstream.
 | 2026-11-11 | `0015-vita-frame-cap.patch` (updated) | `gd-game-01/engine/src/ui/select_panels.cpp` | PS Vita: the Max FPS help says 60 leaves out the crowd |
 | 2026-11-11 | `0015-vita-frame-cap.patch` (updated) | `gd-game-01/engine/src/app.cpp`, `gd-game-01/engine/src/ui/select_panels.cpp` | PS Vita: Max FPS is shown as Performance Mode: 30 FPS, 60 FPS (No Crowd) or Notes Only (`max_fps` "notes": the song loads no venue and a loaded one is not drawn, at 60). New setting Crowd: Full / Reduced (`crowd`, default reduced) |
 | 2026-11-11 | `0018-vita-crowd-lod.patch` (updated) | `gd-game-01/engine/src/render/crowd_renderer.h`, `gd-game-01/engine/src/render/crowd_renderer.cpp` | PS Vita: `CrowdRenderer::setVitaMemberCap`: Crowd Reduced puts at most 8 3D members on the region's spots nearest the camera (in front of it first); the other spots keep their flat sprites |
+| 2026-11-11 | `0015-vita-frame-cap.patch`, `0018-vita-crowd-lod.patch` (updated) | `gd-game-01/engine/src/app.cpp`, `gd-game-01/engine/src/ui/select_panels.cpp`, `gd-game-01/engine/src/render/crowd_renderer.h`, `gd-game-01/engine/src/render/crowd_renderer.cpp`, `gd-game-01/engine/src/render/venue_renderer.cpp` | PS Vita: Crowd is a check (`crowd`, default on): on, at most 8 3D members at 30 and 60 FPS; off, no crowd at 30 and 60 (`CrowdRenderer::vitaShown`, no longer tied to the frame rate). The 60 FPS label drops "(No Crowd)" |
 
 ## New files
 

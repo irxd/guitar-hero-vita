@@ -1,5 +1,5 @@
 diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
-index 4f53469..52cb7e7 100644
+index 4f53469..1173acc 100644
 --- a/gd-game-01/engine/src/app.cpp
 +++ b/gd-game-01/engine/src/app.cpp
 @@ -5,6 +5,8 @@
@@ -7,7 +7,7 @@ index 4f53469..52cb7e7 100644
  // Modified by irxd on 2026-11-10: PS Vita: movies decoded on a worker thread (startMovie, movieFrame, endMovie).
  // Modified by irxd on 2026-11-10: PS Vita: frame phase timing marks for gd01.log (frame).
 +// Modified by irxd on 2026-11-11: PS Vita: Max FPS 30 (default, steady) or 60, paced by vitaGL's vblank interval.
-+// Modified by irxd on 2026-11-11: PS Vita: Performance Mode Notes Only (no venue) and Crowd Full / Reduced.
++// Modified by irxd on 2026-11-11: PS Vita: Performance Mode Notes Only (no venue) and the Crowd setting.
  #include "app.h"
  
  #include <SDL3/SDL.h>
@@ -19,9 +19,9 @@ index 4f53469..52cb7e7 100644
 -                                                    {"bokeh", t("none")}})
 +    // Max FPS 30: busy song shots take 20-30 ms a frame (hardware,
 +    // 2026-11-11), so 30 is steady where 60 would swing between 35 and 48.
-+    // Crowd Reduced: the widest shots drew ~23 3D members (9 ms a frame).
++    // Crowd on: at most 8 3D members (the widest shots drew ~23, 9 ms a frame).
 +    for (auto& [k, v] : std::map<std::string, Json>{{"screen_mode", t("fullscreen")}, {"max_fps", t("30")}, {"internal_res", t("448")},
-+                                                    {"bokeh", t("none")}, {"crowd", t("reduced")}})
++                                                    {"bokeh", t("none")}, {"crowd", b(true)}})
          d[k] = v;
  #else
  #if defined(GD01_STEAM_DECK)
@@ -39,7 +39,7 @@ index 4f53469..52cb7e7 100644
  // Enhanced Settings defaults (keys of enhanced.json): the build's profile
  // over the rest. XInput controllers and Rock Band guitars are always on (no
  // setting since 1.1.7).
-@@ -219,7 +231,14 @@ const std::map<std::string, Json>& enhancedDefaults() {
+@@ -219,7 +231,13 @@ const std::map<std::string, Json>& enhancedDefaults() {
  const std::map<std::string, std::set<std::string>>& enhancedChoices() {
      static const std::map<std::string, std::set<std::string>> c = {
          {"screen_mode", {"windowed", "fullscreen", "borderless"}},
@@ -47,14 +47,13 @@ index 4f53469..52cb7e7 100644
 +        // PS Vita: a 60 Hz screen; Performance Mode's Notes Only runs at 60
 +        // without the venue. Unlimited (benchmarks) has no menu entry.
 +        {"max_fps", {"30", "60", "notes", "unlimited"}},
-+        {"crowd", {"full", "reduced"}},
 +#else
          {"max_fps", {"60", "120", "144", "240", "unlimited"}},
 +#endif
          {"internal_res", {"448", "480", "720", "800", "900", "1080", "1440", "2160"}},
          {"antialiasing", {"none", "fxaa", "ssaa", "taa"}},
          {"ai_upscaling", {"none", "fsr1", "fsr31", "dlss4", "dlss5"}},  // a saved "fsr4" (removed) loads as none
-@@ -421,6 +440,12 @@ private:
+@@ -421,6 +439,12 @@ private:
      Highway highway_;
      std::unique_ptr<TrackRenderer> track_;  // the original highway, when its scene loads
      std::unique_ptr<VenueRenderer> venue_;  // the song's venue, when it loads
@@ -62,12 +61,12 @@ index 4f53469..52cb7e7 100644
 +    // PS Vita Performance Mode > Notes Only: the next song loads no venue,
 +    // and one already loaded is not drawn (the highway on black).
 +    bool vitaNotesOnly_ = false;
-+    static constexpr int kVitaReducedCrowd = 8;  // Crowd Reduced: 3D members
++    static constexpr int kVitaCrowdMembers = 8;  // Crowd on: the most 3D members
 +#endif
      // [I] Enhanced Settings' backdrop: a medium venue (big_club) posed once and
      // frozen, filmed close on the singer's microphone. Loaded at startup and
      // kept, so the menu opens on the next frame (universal_mechanisms.md).
-@@ -919,7 +944,12 @@ void App::startSong(size_t index, ControllerMode mode) {
+@@ -919,7 +943,12 @@ void App::startSong(size_t index, ControllerMode mode) {
          }
          // $cheat_crowd (crowd.dta finish_loading): monkey (1) or skull (2) heads.
          CrowdRenderer::setCheatCrowd(ui_ ? ui_->interp().var("cheat_crowd").integerValue() : 0);
@@ -80,21 +79,21 @@ index 4f53469..52cb7e7 100644
              try {
                  // FUN_00282870 (final_win): the career's final song (above Easy, as the game over below).
                  bool finalSong = ui_ && ui_->interp().send("meta", "get", {Value::symbol("mode")}).str() == "career" &&
-@@ -2044,7 +2074,13 @@ void App::applyEnhanced() {
+@@ -2044,7 +2073,13 @@ void App::applyEnhanced() {
      setParticleRate(enhanced("particles").str() == "2x" ? 2.0f : 1.0f);
      renderer_.setUiEnhance(enhancedOn("sharp_ui"));
      renderer_.setInternalHeight(std::clamp(enhancedInt("internal_res"), 0, 4320));
 +#if defined(__vita__)
 +    renderer_.setFrameCap(vitaFrameCap(enhanced("max_fps").str()));
 +    vitaNotesOnly_ = enhanced("max_fps").str() == "notes";
-+    CrowdRenderer::setVitaMemberCap(enhanced("crowd").str() == "reduced" ? kVitaReducedCrowd : 0);
++    CrowdRenderer::setVitaMemberCap(enhancedOn("crowd") ? kVitaCrowdMembers : -1);
 +#else
      renderer_.setFrameCap(enhanced("max_fps").str() == "unlimited" ? 0 : std::clamp(enhancedInt("max_fps"), 30, 1000));
 +#endif
      // Post-processing of the 3D game frame (render/post_fx.h). FSR 3.1 and
      // DLSS 4 run in Vulkan next to the GL renderer (render/vk_upscaler.h) and
      // fall back to FSR 1; DLSS 5 is not available. Upscalers output at the
-@@ -2114,7 +2150,11 @@ void App::applyEnhanced() {
+@@ -2114,7 +2149,11 @@ void App::applyEnhanced() {
          }
          if (!ok) SDL_Log("enhanced settings: screen mode %s: %s", mode.c_str(), SDL_GetError());
          screenModeApplied_ = mode;
@@ -106,7 +105,7 @@ index 4f53469..52cb7e7 100644
      }
  }
  
-@@ -2513,7 +2553,11 @@ void App::frame() {
+@@ -2513,7 +2552,11 @@ void App::frame() {
              GD01_VITA_PHASE("venue update");
              if (venue_ && screen_ == Screen::Playing) updateVenue(t);
              GD01_VITA_PHASE("venue draw");
@@ -149,7 +148,7 @@ index 0861043..db05ad9 100644
          SDL_GL_SetSwapInterval(0);
          paceNs_ = 0, nextFrameNs_ = 0;
 diff --git a/gd-game-01/engine/src/ui/select_panels.cpp b/gd-game-01/engine/src/ui/select_panels.cpp
-index c9c918a..9af274a 100644
+index c9c918a..5112b7a 100644
 --- a/gd-game-01/engine/src/ui/select_panels.cpp
 +++ b/gd-game-01/engine/src/ui/select_panels.cpp
 @@ -1,6 +1,8 @@
@@ -157,25 +156,23 @@ index c9c918a..9af274a 100644
  // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
  // Modified by irxd on 2026-11-10: PS Vita: character preview cache of 2 models (schedule).
 +// Modified by irxd on 2026-11-11: PS Vita: Max FPS 30 (default, steady) or 60, paced by vitaGL's vblank interval.
-+// Modified by irxd on 2026-11-11: PS Vita: Performance Mode (30 FPS, 60 FPS, Notes Only) and Crowd Full / Reduced.
++// Modified by irxd on 2026-11-11: PS Vita: Performance Mode (30 FPS, 60 FPS, Notes Only) and the Crowd setting.
  #include "ui/select_panels.h"
  
  #include <SDL3/SDL.h>
-@@ -1146,10 +1148,23 @@ private:
+@@ -1146,10 +1148,21 @@ private:
               "Balanced (1.7x) or Performance (2x, the fastest). On a 1440p screen: 960p, 847p, 720p. Native draws "
               "at the screen's resolution and uses DLSS 4 or FSR 3.1 only as anti-aliasing (DLAA with DLSS 4).",
               {{"performance", "Performance"}, {"balanced", "Balanced"}, {"quality", "Quality"}, {"native", "Native (DLAA)"}}, "ai_upscaling"},
 +#if defined(__vita__)
 +            {Kind::Choice, "max_fps", "Performance Mode", true,
-+             "30 FPS: the full stage, every frame on screen for two refreshes, for steady motion. 60 FPS: smoother, "
-+             "without the crowd; busy stages can still run below 60. Notes Only: just the highway on black (no stage, "
++             "30 FPS: the full stage, every frame on screen for two refreshes, for steady motion. 60 FPS: smoother; "
++             "busy stages run below 60, more so with the crowd on. Notes Only: just the highway on black (no stage, "
 +             "band or crowd) at 60; songs started afterwards load faster. The original ran at 60.",
-+             {{"30", "30 FPS"}, {"60", "60 FPS (No Crowd)"}, {"notes", "Notes Only"}}},
-+            {Kind::Choice, "crowd", "Crowd", true,
-+             "At 30 FPS, the crowd nearest the camera is made of full 3D people, and the rest are flat. Full: as the "
-+             "original. Reduced: only the nearest few are 3D and the others stay flat, which keeps the widest shots "
-+             "at a steady 30. Changes show at the next camera cut.",
-+             {{"full", "Full"}, {"reduced", "Reduced"}}},
++             {{"30", "30 FPS"}, {"60", "60 FPS"}, {"notes", "Notes Only"}}},
++            {Kind::Check, "crowd", "Crowd", true,
++             "Shows the crowd at 30 and 60 FPS: up to 8 people nearest the camera in 3D, the rest flat. Off hides "
++             "the whole crowd for a steadier frame rate. Notes Only never shows it. Changes show at the next camera cut."},
 +#else
              {Kind::Choice, "max_fps", "Max FPS", true,
               "The highest frame rate the game draws at; the original ran at 60. Unlimited draws as fast as the "

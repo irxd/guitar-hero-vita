@@ -1,12 +1,12 @@
 diff --git a/gd-game-01/engine/src/render/crowd_renderer.cpp b/gd-game-01/engine/src/render/crowd_renderer.cpp
-index c03ed5b..190e0a8 100644
+index c03ed5b..f30bc1b 100644
 --- a/gd-game-01/engine/src/render/crowd_renderer.cpp
 +++ b/gd-game-01/engine/src/render/crowd_renderer.cpp
 @@ -1,5 +1,7 @@
  // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
  // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
 +// Modified by irxd on 2026-11-11: PS Vita: crowd hidden at Max FPS 60; impostors refreshed and members animated half per frame.
-+// Modified by irxd on 2026-11-11: PS Vita: Crowd Reduced (a cap on the 3D members, the nearest first).
++// Modified by irxd on 2026-11-11: PS Vita: Crowd setting (on: at most 8 3D members, the nearest first; off: hidden).
  #include "render/crowd_renderer.h"
  
  #include <SDL3/SDL.h>
@@ -15,27 +15,28 @@ index c03ed5b..190e0a8 100644
  
  int gCheatCrowd = 0;  // $cheat_crowd for the next venue load
 +#if defined(__vita__)
-+int gVitaMemberCap = 0;  // Crowd Reduced: the most 3D members (0: all)
++int gVitaMemberCap = 0;  // Crowd setting: the most 3D members (0: all, -1: no crowd)
 +#endif
  
  std::map<std::string, int> intDefines(const DataNode& root) {
      std::map<std::string, int> out;
-@@ -175,6 +180,9 @@ CrowdRenderer::CrowdRenderer(Renderer& renderer, const GameData& data, AnimPlaye
+@@ -175,6 +180,10 @@ CrowdRenderer::CrowdRenderer(Renderer& renderer, const GameData& data, AnimPlaye
  }
  
  void CrowdRenderer::setCheatCrowd(int mode) { gCheatCrowd = mode; }
 +#if defined(__vita__)
-+void CrowdRenderer::setVitaMemberCap(int members) { gVitaMemberCap = std::max(0, members); }
++void CrowdRenderer::setVitaMemberCap(int members) { gVitaMemberCap = std::max(-1, members); }
++bool CrowdRenderer::vitaShown() { return gVitaMemberCap >= 0; }
 +#endif
  
  void CrowdRenderer::tempoEvent(const std::string& event) {
      if (event == "crowd_half_tempo") frameScale_ = 0.5f;
-@@ -324,7 +332,31 @@ void CrowdRenderer::switchRegion(int idx, const Xfm& camera, float projX) {
+@@ -324,7 +333,31 @@ void CrowdRenderer::switchRegion(int idx, const Xfm& camera, float projX) {
      leaving_.clear();
      if (R == region_) return;
      for (Block& b : blocks_) b.shown.splice(b.shown.begin(), b.removed);
 +#if defined(__vita__)
-+    // Crowd Reduced: the spots nearest the camera, in front of it first, get
++    // Crowd setting: the spots nearest the camera, in front of it first, get
 +    // the 3D members (the members stand on the first spots); the rest keep
 +    // their sprites.
 +    size_t vitaSpots = regions_[size_t(R)].insts.size();
@@ -62,17 +63,17 @@ index c03ed5b..190e0a8 100644
          Block& b = blocks_[size_t(bi)];
          for (std::list<int>* l : {&b.shown, &b.hidden})
              if (auto it = std::find(l->begin(), l->end(), ii); it != l->end()) {
-@@ -356,6 +388,9 @@ void CrowdRenderer::setSizes(float full, float flat) {
+@@ -356,6 +389,9 @@ void CrowdRenderer::setSizes(float full, float flat) {
      }
      if (region_ < 0) return;
      int target = int(float(regions_[size_t(region_)].insts.size()) * full);
 +#if defined(__vita__)
-+    if (gVitaMemberCap > 0) target = std::min(target, gVitaMemberCap);  // Crowd Reduced
++    if (gVitaMemberCap > 0) target = std::min(target, gVitaMemberCap);  // Crowd setting
 +#endif
      while (int(active_.size()) > target) {
          // At Boot the cut members keep standing until they are off screen.
          if (excitement_ != VenueScript::Boot) returnToPool(active_.back());
-@@ -395,9 +430,19 @@ void CrowdRenderer::update(float beat, float ms, int excitement, bool newShot, i
+@@ -395,9 +431,19 @@ void CrowdRenderer::update(float beat, float ms, int excitement, bool newShot, i
      for (const std::vector<int>* l : {&active_, &leaving_})
          for (int m : *l)
              if (m >= 6) polled.push_back(m);
@@ -92,7 +93,7 @@ index c03ed5b..190e0a8 100644
          a.character->poll(beat, ms, frameScale_);
          if (int hand = a.character->hand(); hand >= 0 && hand != a.hand) {  // set_hand
              a.hand = hand;
-@@ -429,9 +474,18 @@ void CrowdRenderer::renderImpostors(const Xfm& camera) {
+@@ -429,9 +475,18 @@ void CrowdRenderer::renderImpostors(const Xfm& camera) {
      camRot_ = camera.rot;
      const SceneObject* envObj = venue_.find("crowd.env");
      const EnvironObj* env = envObj && envObj->environment ? envObj->environment.get() : nullptr;
@@ -112,31 +113,33 @@ index c03ed5b..190e0a8 100644
          // from the main camera's direction as if it faced the crowd frame M,
          // around its centre A.world * (0, 0, h/2).
 diff --git a/gd-game-01/engine/src/render/crowd_renderer.h b/gd-game-01/engine/src/render/crowd_renderer.h
-index eb608ae..235861a 100644
+index eb608ae..4cd23e6 100644
 --- a/gd-game-01/engine/src/render/crowd_renderer.h
 +++ b/gd-game-01/engine/src/render/crowd_renderer.h
 @@ -1,5 +1,7 @@
  // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
  // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
 +// Modified by irxd on 2026-11-11: PS Vita: crowd hidden at Max FPS 60; impostors refreshed half per frame.
-+// Modified by irxd on 2026-11-11: PS Vita: Crowd Reduced (a cap on the 3D members, the nearest first).
++// Modified by irxd on 2026-11-11: PS Vita: Crowd setting (on: at most 8 3D members, the nearest first; off: hidden).
  #pragma once
  
  #include <array>
-@@ -50,6 +52,12 @@ public:
+@@ -50,6 +52,14 @@ public:
      // $cheat_crowd at venue load (long_cheats.dta; crowd.dta finish_loading):
      // 1 every member gets head 6 (monkey), 2 head 7 (skull), 0 their own.
      static void setCheatCrowd(int mode);
 +#if defined(__vita__)
 +    // PS Vita Enhanced Settings > Crowd: at most `members` 3D members (0: no
 +    // cap), on the region's spots nearest the camera; the other spots keep
-+    // their flat sprites. In effect from the next region switch.
++    // their flat sprites. In effect from the next region switch. -1: the
++    // crowd is hidden (neither animated nor drawn; VenueRenderer asks vitaShown).
 +    static void setVitaMemberCap(int members);
++    static bool vitaShown();
 +#endif
  
  private:
      struct Member {
-@@ -80,6 +88,9 @@ private:
+@@ -80,6 +90,9 @@ private:
      Renderer& renderer_;
      AnimPlayer& venue_;
      std::vector<Member> members_;  // crowd0.. in creation order; 0..5 are the impostor archetypes
@@ -147,29 +150,26 @@ index eb608ae..235861a 100644
      std::vector<int> active_;      // active_[i] stands on the region's instance i
      std::vector<int> leaving_;     // members cut at Boot: they stay until off screen
 diff --git a/gd-game-01/engine/src/render/venue_renderer.cpp b/gd-game-01/engine/src/render/venue_renderer.cpp
-index 0a60673..8539644 100644
+index 0a60673..bd1cd4c 100644
 --- a/gd-game-01/engine/src/render/venue_renderer.cpp
 +++ b/gd-game-01/engine/src/render/venue_renderer.cpp
-@@ -1,8 +1,10 @@
+@@ -1,6 +1,7 @@
  // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
  // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
  // Modified by irxd on 2026-11-10: PS Vita: frame phase timing marks for gd01.log (update).
-+// Modified by irxd on 2026-11-11: PS Vita: crowd hidden at Max FPS 60; impostors refreshed half per frame.
++// Modified by irxd on 2026-11-11: PS Vita: crowd shown by the Crowd setting; impostors refreshed half per frame.
  #include "render/venue_renderer.h"
  #if defined(__vita__)
-+#include "vita_display.h"  // the Vita port's vita/src: display pacing (crowd at 30 fps only)
  #include "vita_profile.h"  // the Vita port's vita/src: frame phase timing
- #define GD01_VITA_PHASE(name) vita::profilePhase(name)
- #else
-@@ -382,7 +384,14 @@ void VenueRenderer::update(const VenueFrame& f) {
+@@ -382,7 +383,14 @@ void VenueRenderer::update(const VenueFrame& f) {
      GD01_VITA_PHASE("venue: lights");
      updateSpotLight();
      GD01_VITA_PHASE("venue: crowd");
 -    if (crowd_) {
 +#if defined(__vita__)
-+    // PS Vita: at Max FPS 60 the crowd is neither animated nor drawn (up to
-+    // 14 ms of a wide shot's frame); at 30 it is.
-+    const bool vitaCrowd = vita::swapInterval() >= 2;
++    // PS Vita: with the Crowd setting off the crowd is neither animated nor
++    // drawn (up to 14 ms of a wide shot's frame).
++    const bool vitaCrowd = CrowdRenderer::vitaShown();
 +#else
 +    constexpr bool vitaCrowd = true;
 +#endif
@@ -177,12 +177,12 @@ index 0a60673..8539644 100644
          for (const std::string& e : f.events) crowd_->tempoEvent(e);
          std::string shot = camera_ ? camera_->shotName() : "";
          crowd_->update(f.ticks / 480.0f, f.ms, f.excitement, shot != lastShot_ || !camera_, camera_ ? camera_->crowdRegion() : -1,
-@@ -440,7 +449,11 @@ void VenueRenderer::draw() {
+@@ -440,7 +448,11 @@ void VenueRenderer::draw() {
          }
      if (still_) vp_ = stillVp_;
      const Mat4& vp = vp_;
 +#if defined(__vita__)
-+    const bool showCrowd = crowd_ && !(camera_ && camera_->hideCrowd()) && vita::swapInterval() >= 2;
++    const bool showCrowd = crowd_ && !(camera_ && camera_->hideCrowd()) && CrowdRenderer::vitaShown();
 +#else
      const bool showCrowd = crowd_ && !(camera_ && camera_->hideCrowd());
 +#endif
