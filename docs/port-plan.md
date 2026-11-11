@@ -179,7 +179,7 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
 - [ ] Try P8 (paletted) textures for the PS2 palettised data
 
 ### Phase 4: Vita polish and release (1–2 weeks)
-- [ ] Input map, default "thumb strum": Green = L, Red = □, Yellow = △, Blue = ○, Orange = R; strum = D-pad up/down; Star Power = Select (+ optional tilt via the motion sensor); whammy = right stick; pause = Start. Optional alternatives: front-touch fret zones, rear-touch strum. All remappable via the GAMEPADS screen. Labelled as a "handheld mode".
+- [ ] Input map, default (user's layout, 2026-11-11, patch 0004): Green = D-pad ←, Red = L, Yellow = R, Blue = ○, Orange = ✕; strum = D-pad up/down; Star Power = Select (+ optional tilt via the motion sensor); whammy = right stick; pause = Start. Optional alternatives: front-touch fret zones, rear-touch strum. All remappable via the GAMEPADS screen. Labelled as a "handheld mode".
 - [ ] FMV: keep it if ≥ 30 fps, otherwise skip it with a log line
 - [ ] Our own LiveArea assets. Credits screen shows the attribution line.
 - [ ] `CHANGES.md`, a VPK build script, GitHub release with source
@@ -292,3 +292,4 @@ Alternatives:
 - 2026-11-11: Hardware run 18: merged characters built but off (GPU skinning errors / shader compiler crash); FBO scenes in flight 1 -> 4 (impostor GPU waits); lighting reuse. Widest crowd shot 137 -> 55 slow frames per 5 s.
 - 2026-11-11: Hardware run 19: Performance Mode (30 / 60 No Crowd / Notes Only) and Crowd Full / Reduced; Reduced halves the widest shot's crowd (8.4 -> 4.5 ms), slow frames 64 -> 26 per run; Notes Only a locked 60.
 - 2026-11-11: Crowd setting is a check: on = 8-member crowd at 30 and 60, off = none (60 + crowd 32-55 FPS, 60 without 47-58).
+- 2026-11-11: Default frets changed to the user's layout: D-pad Left, L, R, Circle, Cross (patch 0004).

@@ -44,6 +44,7 @@ platforms build exactly as upstream.
 | 2026-11-11 | `0018-vita-crowd-lod.patch` (updated) | `gd-game-01/engine/src/render/crowd_renderer.h`, `gd-game-01/engine/src/render/crowd_renderer.cpp` | PS Vita: `CrowdRenderer::setVitaMemberCap`: Crowd Reduced puts at most 8 3D members on the region's spots nearest the camera (in front of it first); the other spots keep their flat sprites |
 | 2026-11-11 | `0015-vita-frame-cap.patch`, `0018-vita-crowd-lod.patch` (updated) | `gd-game-01/engine/src/app.cpp`, `gd-game-01/engine/src/ui/select_panels.cpp`, `gd-game-01/engine/src/render/crowd_renderer.h`, `gd-game-01/engine/src/render/crowd_renderer.cpp`, `gd-game-01/engine/src/render/venue_renderer.cpp` | PS Vita: Crowd is a check (`crowd`, default on): on, at most 8 3D members at 30 and 60 FPS; off, no crowd at 30 and 60 (`CrowdRenderer::vitaShown`, no longer tied to the frame rate). The 60 FPS label drops "(No Crowd)" |
 | 2026-11-11 | `0015-vita-frame-cap.patch` (updated) | `gd-game-01/engine/src/ui/select_panels.cpp` | PS Vita: a shorter Crowd help text |
+| 2026-11-11 | `0004-vita-joypad-frets.patch` (updated) | `gd-game-01/engine/src/input/input.cpp` | PS Vita: default frets D-pad Left (green), L (red), R (yellow), Circle (blue), Cross (orange); strum stays on D-pad Up / Down; in a song D-pad Left and Cross are only frets (no menu Left / Confirm) |
 
 ## New files
 
