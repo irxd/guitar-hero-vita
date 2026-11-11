@@ -14,6 +14,42 @@ A homebrew PS Vita port of Guitar Dream Engine's reimplementation of **Guitar He
 Status: **early port**: menus and songs run on hardware; performance work in progress.
 See [docs/port-plan.md](docs/port-plan.md).
 
+## Performance
+
+Measured on a retail PS Vita (2026-11-11), with the song played by autoplay and the
+camera shots seeded so every run sees the same shots. Test song: *I Love Rock 'n' Roll*,
+one of the busiest venues (a large crowd on screen).
+
+Options → Enhanced Settings → Performance & Graphics:
+
+| Performance Mode | Crowd | Result |
+|---|---|---|
+| 30 FPS (default) | On (default) | Steady 30 FPS. After loading, at most 1 late frame in any 5 seconds |
+| 30 FPS | Off | Steady 30 FPS, more headroom (17–19 ms of the 33 ms a frame) |
+| 60 FPS | On | 32–55 FPS; the widest crowd shots drop to the low 30s |
+| 60 FPS | Off | 47–58 FPS |
+| Notes Only | (not shown) | Locked 60 FPS; just the highway on black, ~3 ms a frame |
+
+- **30 FPS** shows every frame for exactly two screen refreshes, so motion stays even.
+  60 FPS is smoother when it holds, but busy stages still run below it.
+- **Crowd On** draws up to 8 people nearest the camera in 3D and the rest as flat
+  cut-outs; in the widest shots this halves the crowd's cost (8.4 → 4.5 ms a frame)
+  against drawing them all in 3D, and the crowd looks just as full.
+- **Notes Only** loads no stage, band or crowd: songs also start faster and use less memory.
+
+Loading and memory:
+
+| | Result |
+|---|---|
+| Song audio (a 19 MB track) | Loads in 1.6 s |
+| Song list preview | Plays ~0.3 s after you stop on a song; the list never freezes |
+| Memory in the menus | Stays at ~40 MB of the 256 MB available, however many songs you play (tested six in a row) |
+| Memory during a song | ~80–110 MB |
+
+Details of every hardware run: [docs/port-plan.md](docs/port-plan.md).
+
+## More
+
 - Changes from upstream: [CHANGES.md](CHANGES.md)
 - Licence: [LICENSE](LICENSE) and [LICENSE-ADDITIONAL-TERMS.md](LICENSE-ADDITIONAL-TERMS.md) (unchanged from upstream)
 - Agent and contributor rules: [CLAUDE.md](CLAUDE.md)
