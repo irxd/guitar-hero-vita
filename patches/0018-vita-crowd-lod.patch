@@ -1,15 +1,78 @@
 diff --git a/gd-game-01/engine/src/render/crowd_renderer.cpp b/gd-game-01/engine/src/render/crowd_renderer.cpp
-index c03ed5b..00a189f 100644
+index c03ed5b..190e0a8 100644
 --- a/gd-game-01/engine/src/render/crowd_renderer.cpp
 +++ b/gd-game-01/engine/src/render/crowd_renderer.cpp
-@@ -1,5 +1,6 @@
+@@ -1,5 +1,7 @@
  // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
  // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
 +// Modified by irxd on 2026-11-11: PS Vita: crowd hidden at Max FPS 60; impostors refreshed and members animated half per frame.
++// Modified by irxd on 2026-11-11: PS Vita: Crowd Reduced (a cap on the 3D members, the nearest first).
  #include "render/crowd_renderer.h"
  
  #include <SDL3/SDL.h>
-@@ -395,9 +396,19 @@ void CrowdRenderer::update(float beat, float ms, int excitement, bool newShot, i
+@@ -19,6 +21,9 @@ namespace {
+ constexpr uint32_t kIdle = 8, kBad = 16, kOk = 32, kGreat = 128;
+ 
+ int gCheatCrowd = 0;  // $cheat_crowd for the next venue load
++#if defined(__vita__)
++int gVitaMemberCap = 0;  // Crowd Reduced: the most 3D members (0: all)
++#endif
+ 
+ std::map<std::string, int> intDefines(const DataNode& root) {
+     std::map<std::string, int> out;
+@@ -175,6 +180,9 @@ CrowdRenderer::CrowdRenderer(Renderer& renderer, const GameData& data, AnimPlaye
+ }
+ 
+ void CrowdRenderer::setCheatCrowd(int mode) { gCheatCrowd = mode; }
++#if defined(__vita__)
++void CrowdRenderer::setVitaMemberCap(int members) { gVitaMemberCap = std::max(0, members); }
++#endif
+ 
+ void CrowdRenderer::tempoEvent(const std::string& event) {
+     if (event == "crowd_half_tempo") frameScale_ = 0.5f;
+@@ -324,7 +332,31 @@ void CrowdRenderer::switchRegion(int idx, const Xfm& camera, float projX) {
+     leaving_.clear();
+     if (R == region_) return;
+     for (Block& b : blocks_) b.shown.splice(b.shown.begin(), b.removed);
++#if defined(__vita__)
++    // Crowd Reduced: the spots nearest the camera, in front of it first, get
++    // the 3D members (the members stand on the first spots); the rest keep
++    // their sprites.
++    size_t vitaSpots = regions_[size_t(R)].insts.size();
++    if (gVitaMemberCap > 0) {
++        auto dist = [&](const std::pair<int, int>& s) {
++            const auto& p = blocks_[size_t(s.first)].mm->instances[size_t(s.second)].pos;
++            float d = 0, ahead = 0;
++            for (int j = 0; j < 3; ++j) {
++                const float dj = p[size_t(j)] - camera.pos[size_t(j)];
++                d += dj * dj;
++                ahead += dj * camera.rot[size_t(3 + j)];  // rows right, forward, up
++            }
++            return ahead > 0 ? d : d + 1e12f;
++        };
++        std::vector<std::pair<int, int>>& insts = regions_[size_t(R)].insts;
++        std::stable_sort(insts.begin(), insts.end(), [&](const auto& a, const auto& b) { return dist(a) < dist(b); });
++        vitaSpots = std::min(vitaSpots, size_t(gVitaMemberCap));
++    }
++    for (size_t vi = 0; vi < vitaSpots; ++vi) {
++        const auto& [bi, ii] = regions_[size_t(R)].insts[vi];
++#else
+     for (const auto& [bi, ii] : regions_[size_t(R)].insts) {
++#endif
+         Block& b = blocks_[size_t(bi)];
+         for (std::list<int>* l : {&b.shown, &b.hidden})
+             if (auto it = std::find(l->begin(), l->end(), ii); it != l->end()) {
+@@ -356,6 +388,9 @@ void CrowdRenderer::setSizes(float full, float flat) {
+     }
+     if (region_ < 0) return;
+     int target = int(float(regions_[size_t(region_)].insts.size()) * full);
++#if defined(__vita__)
++    if (gVitaMemberCap > 0) target = std::min(target, gVitaMemberCap);  // Crowd Reduced
++#endif
+     while (int(active_.size()) > target) {
+         // At Boot the cut members keep standing until they are off screen.
+         if (excitement_ != VenueScript::Boot) returnToPool(active_.back());
+@@ -395,9 +430,19 @@ void CrowdRenderer::update(float beat, float ms, int excitement, bool newShot, i
      for (const std::vector<int>* l : {&active_, &leaving_})
          for (int m : *l)
              if (m >= 6) polled.push_back(m);
@@ -29,7 +92,7 @@ index c03ed5b..00a189f 100644
          a.character->poll(beat, ms, frameScale_);
          if (int hand = a.character->hand(); hand >= 0 && hand != a.hand) {  // set_hand
              a.hand = hand;
-@@ -429,9 +440,18 @@ void CrowdRenderer::renderImpostors(const Xfm& camera) {
+@@ -429,9 +474,18 @@ void CrowdRenderer::renderImpostors(const Xfm& camera) {
      camRot_ = camera.rot;
      const SceneObject* envObj = venue_.find("crowd.env");
      const EnvironObj* env = envObj && envObj->environment ? envObj->environment.get() : nullptr;
@@ -49,17 +112,31 @@ index c03ed5b..00a189f 100644
          // from the main camera's direction as if it faced the crowd frame M,
          // around its centre A.world * (0, 0, h/2).
 diff --git a/gd-game-01/engine/src/render/crowd_renderer.h b/gd-game-01/engine/src/render/crowd_renderer.h
-index eb608ae..b70a47b 100644
+index eb608ae..235861a 100644
 --- a/gd-game-01/engine/src/render/crowd_renderer.h
 +++ b/gd-game-01/engine/src/render/crowd_renderer.h
-@@ -1,5 +1,6 @@
+@@ -1,5 +1,7 @@
  // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
  // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
 +// Modified by irxd on 2026-11-11: PS Vita: crowd hidden at Max FPS 60; impostors refreshed half per frame.
++// Modified by irxd on 2026-11-11: PS Vita: Crowd Reduced (a cap on the 3D members, the nearest first).
  #pragma once
  
  #include <array>
-@@ -80,6 +81,9 @@ private:
+@@ -50,6 +52,12 @@ public:
+     // $cheat_crowd at venue load (long_cheats.dta; crowd.dta finish_loading):
+     // 1 every member gets head 6 (monkey), 2 head 7 (skull), 0 their own.
+     static void setCheatCrowd(int mode);
++#if defined(__vita__)
++    // PS Vita Enhanced Settings > Crowd: at most `members` 3D members (0: no
++    // cap), on the region's spots nearest the camera; the other spots keep
++    // their flat sprites. In effect from the next region switch.
++    static void setVitaMemberCap(int members);
++#endif
+ 
+ private:
+     struct Member {
+@@ -80,6 +88,9 @@ private:
      Renderer& renderer_;
      AnimPlayer& venue_;
      std::vector<Member> members_;  // crowd0.. in creation order; 0..5 are the impostor archetypes
