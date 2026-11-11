@@ -106,37 +106,90 @@ index 1173acc..5d47366 100644
          pollUserFiles();
          if (screen_ == Screen::Menu) ui_->draw();
 diff --git a/gd-game-01/engine/src/data/iso9660.cpp b/gd-game-01/engine/src/data/iso9660.cpp
-index 8bd46ad..d2d56ed 100644
+index 8bd46ad..12eede0 100644
 --- a/gd-game-01/engine/src/data/iso9660.cpp
 +++ b/gd-game-01/engine/src/data/iso9660.cpp
-@@ -1,8 +1,12 @@
+@@ -1,8 +1,14 @@
  // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
  // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
-+// Modified by irxd on 2026-11-11: PS Vita: RandomFile::read locked (song previews read on a worker thread).
++// Modified by irxd on 2026-11-11: PS Vita: RandomFile reads with sceIoPread (positional: fast, and safe from the preview thread).
  #include "data/iso9660.h"
  
  #include <cctype>
 +#if defined(__vita__)
-+#include <mutex>
++#include <psp2/io/fcntl.h>
++
++#include <algorithm>
 +#endif
  #include <stdexcept>
  #include <string>
  #ifdef _WIN32
-@@ -81,6 +85,12 @@ std::unique_ptr<RandomFile> RandomFile::open(const std::string& path) {
- RandomFile::~RandomFile() { std::fclose(f_); }
+@@ -75,12 +81,41 @@ std::unique_ptr<RandomFile> RandomFile::open(const std::string& path) {
+     std::FILE* f = openForReading(path);
+     if (!f) return nullptr;
+     uint64_t size = size64(f);
++#if defined(__vita__)
++    auto file = std::unique_ptr<RandomFile>(new RandomFile(f, size));
++    file->vitaFd_ = sceIoOpen(path.c_str(), SCE_O_RDONLY, 0);
++    return file;
++#else
+     return std::unique_ptr<RandomFile>(new RandomFile(f, size));
++#endif
+ }
+ 
+-RandomFile::~RandomFile() { std::fclose(f_); }
++RandomFile::~RandomFile() {
++#if defined(__vita__)
++    if (vitaFd_ >= 0) sceIoClose(vitaFd_);
++#endif
++    std::fclose(f_);
++}
  
  void RandomFile::read(uint64_t offset, void* dst, size_t size) {
 +#if defined(__vita__)
-+    // PS Vita: song previews read the disc image on a worker thread; one
-+    // seek + read at a time on the shared handle.
-+    static std::mutex lock;
-+    std::lock_guard<std::mutex> hold(lock);
++    // PS Vita: newlib's fread reached the memory card in small pieces, ~4 MB/s
++    // (a 19 MB song in 5 s, hardware 2026-11-11). sceIoPread reads at an
++    // offset in one call (no shared file position: safe from the song
++    // preview thread too).
++    if (vitaFd_ >= 0) {
++        if (offset + size > size_) throw std::runtime_error("read beyond end of file");
++        auto* out = static_cast<uint8_t*>(dst);
++        constexpr size_t kPiece = 4 * 1024 * 1024;
++        for (size_t done = 0; done < size;) {
++            const size_t want = std::min(kPiece, size - done);
++            const int got = sceIoPread(vitaFd_, out + done, SceSize(want), SceOff(offset + done));
++            if (got <= 0) throw std::runtime_error("read beyond end of file");
++            done += size_t(got);
++        }
++        return;
++    }
 +#endif
      if (offset + size > size_ || seek64(f_, offset) != 0 || std::fread(dst, 1, size, f_) != size)
          throw std::runtime_error("read beyond end of file");
  }
+diff --git a/gd-game-01/engine/src/data/iso9660.h b/gd-game-01/engine/src/data/iso9660.h
+index 92716b3..635f39f 100644
+--- a/gd-game-01/engine/src/data/iso9660.h
++++ b/gd-game-01/engine/src/data/iso9660.h
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-11: PS Vita: RandomFile reads with sceIoPread (positional: fast, and safe from the preview thread).
+ #pragma once
+ 
+ #include <cstdint>
+@@ -24,6 +25,9 @@ private:
+     RandomFile(std::FILE* f, uint64_t size) : f_(f), size_(size) {}
+     std::FILE* f_;
+     uint64_t size_;
++#if defined(__vita__)
++    int vitaFd_ = -1;  // PS Vita: an sceIo descriptor of the same file, read with sceIoPread
++#endif
+ };
+ 
+ // Minimal read-only ISO 9660 directory lookup (enough for PS2 DVD images).
 diff --git a/gd-game-01/engine/src/data/vgs.cpp b/gd-game-01/engine/src/data/vgs.cpp
-index 87feab8..6ccfe0e 100644
+index 87feab8..757a2e2 100644
 --- a/gd-game-01/engine/src/data/vgs.cpp
 +++ b/gd-game-01/engine/src/data/vgs.cpp
 @@ -1,5 +1,6 @@
@@ -174,8 +227,8 @@ index 87feab8..6ccfe0e 100644
 +    const uint64_t end = endMs > 0 ? std::min<uint64_t>(uint64_t(endMs * framesPerMs) / 28 + 1, total) : total;
 +    vitaFirstBlock_ = static_cast<size_t>(first);
 +    data_.resize(static_cast<size_t>(std::max(end, first) - first) * n * kBlockSize);
-+    // In pieces: GameData's file handle is shared (locked per read) with the
-+    // main thread, which waits at most one piece.
++    // In pieces of 256 KB (the reads are positional: the main thread may
++    // read the disc image at the same time).
 +    constexpr size_t kPiece = 256 * 1024;
 +    size_t got = 0;
 +    while (got < data_.size()) {

@@ -11,8 +11,9 @@
 // VgsStream's windowed constructor) and App takes it when it is ready. Only
 // the latest request counts: one still loading when another comes is dropped.
 //
-// The worker reads the disc image through GameData, whose shared file handle
-// is locked per read on the Vita (patch 0020, data/iso9660.cpp).
+// The worker reads the disc image through GameData; on the Vita its reads
+// are positional (sceIoPread, patch 0020, data/iso9660.cpp), so the main
+// thread can read at the same time.
 #pragma once
 
 #include <SDL3/SDL.h>
