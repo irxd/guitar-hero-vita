@@ -11,8 +11,34 @@ A homebrew PS Vita port of Guitar Dream Engine's reimplementation of **Guitar He
 - Licensed under the upstream terms: PolyForm Noncommercial 1.0.0 plus `LICENSE-ADDITIONAL-TERMS.md`.
   The port is non-commercial, and its full source is published with every build.
 
-Status: **early port**: menus and songs run on hardware; performance work in progress.
-See [docs/port-plan.md](docs/port-plan.md).
+## Status
+
+**Playable on hardware, not yet released.** No public VPK yet; tested on a retail PS Vita
+with the user's own disc image (2026-11-11).
+
+Working on the Vita:
+
+- Boot logos, main menu, Quick Play song list with previews, Enhanced Settings
+- Songs load and play with the full stage: venue, band, crowd, highway, HUD, pause menu, retry
+- Steady 30 FPS with the full stage, and 60 FPS options (see [Performance](#performance))
+- Play on the Vita's buttons: Green D-pad ←, Red L, Yellow R, Blue ○, Orange ✕, strum
+  D-pad ↑/↓
+- Memory stays stable however many songs you play
+
+Known limitations:
+
+- **Movies** (intro and in-game videos) play in sync with their sound but choppy, at about
+  8 pictures a second: the engine decodes MPEG-2 in software, and the Vita's CPU is short of
+  real time even with NEON code paths
+- **Button remapping** on the Vita is not done yet; the layout above is fixed for now
+- **Not tested yet:** Career mode, multiplayer (face-off), tutorials, the Gamepads screen
+- **Vita-only differences from the PC version:** no post-processing effects by default
+  (bloom, depth of field), no fade at the far end of the highway, no AI upscaling, HDR or
+  MIDI guitars
+
+Still to do before a release: button remapping, smoother movies, our own LiveArea art and
+the attribution on the credits screen, then a VPK release with its source.
+Full record of every hardware run: [docs/port-plan.md](docs/port-plan.md).
 
 ## Performance
 
