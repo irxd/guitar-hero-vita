@@ -646,8 +646,14 @@ __attribute__((constructor)) void vitaEarlyInit() {
 
 namespace vita {
 
+namespace {
+int gSwapInterval = -1;  // vitaGL starts at 1
+}  // namespace
+
+int swapInterval() { return gSwapInterval < 0 ? 1 : gSwapInterval; }
+
 void setSwapInterval(int vblanks) {
-    static int current = -1;
+    int& current = gSwapInterval;
     if (vblanks == current) return;
     current = vblanks;
     eglSwapInterval(nullptr, vblanks);  // vitaGL: sceDisplayWaitVblankStartMulti(vblanks) after each frame

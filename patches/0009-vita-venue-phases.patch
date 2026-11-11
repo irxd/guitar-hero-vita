@@ -1,5 +1,5 @@
 diff --git a/gd-game-01/engine/src/render/venue_renderer.cpp b/gd-game-01/engine/src/render/venue_renderer.cpp
-index bfc3e30..fc78f10 100644
+index bfc3e30..0a60673 100644
 --- a/gd-game-01/engine/src/render/venue_renderer.cpp
 +++ b/gd-game-01/engine/src/render/venue_renderer.cpp
 @@ -1,6 +1,13 @@
@@ -52,3 +52,31 @@ index bfc3e30..fc78f10 100644
      if (camera_) {
          VenueCamera::State cs;
          cs.starMode = f.starMode;
+@@ -429,7 +442,9 @@ void VenueRenderer::draw() {
+     const Mat4& vp = vp_;
+     const bool showCrowd = crowd_ && !(camera_ && camera_->hideCrowd());
+     const Xfm camXfm = still_ ? stillCam_ : camera_ ? camera_->transform() : Xfm{};
++    GD01_VITA_PHASE("venue draw: crowd impostors");
+     if (showCrowd) crowd_->renderImpostors(camXfm);
++    GD01_VITA_PHASE("venue draw: stage");
+     // ArenaPanel draw (FUN_001696d8): each section's view, the characters, the
+     // crowd last, then the sections' transparent views (beams, glows, flares).
+     for (Section& s : sections_) {
+@@ -447,6 +462,7 @@ void VenueRenderer::draw() {
+         for (int k = 0; k < 3; ++k) filled.ambient[size_t(k)] = std::min(1.0f, env->ambient[size_t(k)] * gain + lift);
+         env = &filled;
+     }
++    GD01_VITA_PHASE("venue draw: band");
+     if (guitarist_) {
+         guitarist_->draw(vp, env);
+         // The shadow falls away from the spotlight that follows the guitarist.
+@@ -473,7 +489,9 @@ void VenueRenderer::draw() {
+             if (l.character == guitarist2_.get()) l.character->drawShadow(vp, d);
+             else l.character->drawBodyShadow(vp, d, shadowMat_);
+         }
++    GD01_VITA_PHASE("venue draw: crowd");
+     if (showCrowd) crowd_->draw(vp);
++    GD01_VITA_PHASE("venue draw: rest");
+     // 0x169818: the floor spots, then the transparent views.
+     if (fxRenderer_ && floorSpotOn_) {
+         SceneRenderer::MeshOptions opt;

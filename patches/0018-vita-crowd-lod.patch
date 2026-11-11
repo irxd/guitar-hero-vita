@@ -1,0 +1,94 @@
+diff --git a/gd-game-01/engine/src/render/crowd_renderer.cpp b/gd-game-01/engine/src/render/crowd_renderer.cpp
+index c03ed5b..5167797 100644
+--- a/gd-game-01/engine/src/render/crowd_renderer.cpp
++++ b/gd-game-01/engine/src/render/crowd_renderer.cpp
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-11: PS Vita: crowd hidden at Max FPS 60; impostors refreshed half per frame.
+ #include "render/crowd_renderer.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -429,9 +430,18 @@ void CrowdRenderer::renderImpostors(const Xfm& camera) {
+     camRot_ = camera.rot;
+     const SceneObject* envObj = venue_.find("crowd.env");
+     const EnvironObj* env = envObj && envObj->environment ? envObj->environment.get() : nullptr;
++#if defined(__vita__)
++    // PS Vita: each impostor is a full character drawn into its own render
++    // target (3.7 ms a frame for the six in wide shots, hardware 2026-11-11):
++    // the even ones on one frame, the odd ones on the next, all on the first.
++    const int vitaFrame = vitaImpostorFrame_++;
++#endif
+     for (int k = 0; k < 6 && k < int(members_.size()); ++k) {
+         Member& a = members_[size_t(k)];
+         if (!a.target || !a.character) continue;
++#if defined(__vita__)
++        if (vitaFrame > 0 && (k & 1) != (vitaFrame & 1)) continue;
++#endif
+         // FUN_00172350: R_imp = C * M^T * R_A (row vectors), the archetype seen
+         // from the main camera's direction as if it faced the crowd frame M,
+         // around its centre A.world * (0, 0, h/2).
+diff --git a/gd-game-01/engine/src/render/crowd_renderer.h b/gd-game-01/engine/src/render/crowd_renderer.h
+index eb608ae..b70a47b 100644
+--- a/gd-game-01/engine/src/render/crowd_renderer.h
++++ b/gd-game-01/engine/src/render/crowd_renderer.h
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-11: PS Vita: crowd hidden at Max FPS 60; impostors refreshed half per frame.
+ #pragma once
+ 
+ #include <array>
+@@ -80,6 +81,9 @@ private:
+     Renderer& renderer_;
+     AnimPlayer& venue_;
+     std::vector<Member> members_;  // crowd0.. in creation order; 0..5 are the impostor archetypes
++#if defined(__vita__)
++    int vitaImpostorFrame_ = 0;  // PS Vita: impostors refreshed half per frame (all on the first)
++#endif
+     std::list<int> pool_;          // LIFO: the last created first
+     std::vector<int> active_;      // active_[i] stands on the region's instance i
+     std::vector<int> leaving_;     // members cut at Boot: they stay until off screen
+diff --git a/gd-game-01/engine/src/render/venue_renderer.cpp b/gd-game-01/engine/src/render/venue_renderer.cpp
+index 0a60673..8539644 100644
+--- a/gd-game-01/engine/src/render/venue_renderer.cpp
++++ b/gd-game-01/engine/src/render/venue_renderer.cpp
+@@ -1,8 +1,10 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-10: PS Vita: frame phase timing marks for gd01.log (update).
++// Modified by irxd on 2026-11-11: PS Vita: crowd hidden at Max FPS 60; impostors refreshed half per frame.
+ #include "render/venue_renderer.h"
+ #if defined(__vita__)
++#include "vita_display.h"  // the Vita port's vita/src: display pacing (crowd at 30 fps only)
+ #include "vita_profile.h"  // the Vita port's vita/src: frame phase timing
+ #define GD01_VITA_PHASE(name) vita::profilePhase(name)
+ #else
+@@ -382,7 +384,14 @@ void VenueRenderer::update(const VenueFrame& f) {
+     GD01_VITA_PHASE("venue: lights");
+     updateSpotLight();
+     GD01_VITA_PHASE("venue: crowd");
+-    if (crowd_) {
++#if defined(__vita__)
++    // PS Vita: at Max FPS 60 the crowd is neither animated nor drawn (up to
++    // 14 ms of a wide shot's frame); at 30 it is.
++    const bool vitaCrowd = vita::swapInterval() >= 2;
++#else
++    constexpr bool vitaCrowd = true;
++#endif
++    if (crowd_ && vitaCrowd) {
+         for (const std::string& e : f.events) crowd_->tempoEvent(e);
+         std::string shot = camera_ ? camera_->shotName() : "";
+         crowd_->update(f.ticks / 480.0f, f.ms, f.excitement, shot != lastShot_ || !camera_, camera_ ? camera_->crowdRegion() : -1,
+@@ -440,7 +449,11 @@ void VenueRenderer::draw() {
+         }
+     if (still_) vp_ = stillVp_;
+     const Mat4& vp = vp_;
++#if defined(__vita__)
++    const bool showCrowd = crowd_ && !(camera_ && camera_->hideCrowd()) && vita::swapInterval() >= 2;
++#else
+     const bool showCrowd = crowd_ && !(camera_ && camera_->hideCrowd());
++#endif
+     const Xfm camXfm = still_ ? stillCam_ : camera_ ? camera_->transform() : Xfm{};
+     GD01_VITA_PHASE("venue draw: crowd impostors");
+     if (showCrowd) crowd_->renderImpostors(camXfm);

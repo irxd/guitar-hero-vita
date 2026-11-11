@@ -10,5 +10,7 @@ namespace vita {
 // before showing the next: 2 is a steady 30 fps, 1 up to 60, 0 no vertical
 // sync (tearing).
 void setSwapInterval(int vblanks);
+// The current interval (1 until set). The venue leaves out the crowd below 2.
+int swapInterval();
 
 }  // namespace vita

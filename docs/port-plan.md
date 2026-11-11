@@ -141,7 +141,10 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
 - [x] **Hardware run 15 (2026-11-11): view culling.** Benchmarks are now repeatable: `GD01_VITA_SEED=1` (patch 0017) fixes the camera's shot choice (`--args 'GD01_VITA_PHASES=1 GD01_VITA_SEED=1 --song smokeonthewater --autoplay'`, with `max_fps` 60 in enhanced.json for unlocked numbers). Note: `SDL_getenv` does not see args.txt variables (SDL copies the environment earlier); use `std::getenv`.
   - **Patch 0016:** the scene renderer had no view culling. Each non-skinned mesh now gets a bounding sphere from its vertices, tested against the six clip planes of its MVP. Same shots, CPU per frame off → on: 29.6 → 28.4 ms (516 → 497 draws), 21.8 → 20.2, 28.4 → 25.8, 26.1 → 24.0 ms. Little gain in the widest shot (only ~15 meshes off screen).
   - Unlocked: 35-49 FPS; locked 30 has ~5 ms to spare in the heaviest shot.
-  - **Next:** margin for the heaviest shots; then the per-mesh cost in the scene renderer (state building, string mesh names in the track) and animation on a second core, the only route toward 60.
+- [x] **Hardware run 16 (2026-11-11): second benchmark song, crowd LOD.** `--song iloverockandroll` (seed 1) is heavier than smokeonthewater: wide shots of 590-660 draws at 33-36 ms (27-30 FPS unlocked). Patch 0009 now splits "venue draw" into crowd impostors / stage / band / crowd / rest: in those shots the crowd is ~14 ms (impostors 3.7, 3D members 8-8.8, animation ~2).
+  - **Patch 0018** (the user's idea): Max FPS 60 leaves out the crowd (no animation, no draw): **44-56 FPS** on this song (17-20 ms CPU). At 30 the crowd stays; its six impostors are re-rendered half per frame (3.7 → 1.9 ms): **29.3-30.0 FPS**, the widest shots at the edge (31.7-33.7 ms CPU).
+  - Deviations (Vita): no crowd at Max FPS 60; impostor crowd animates at 15 Hz at Max FPS 30.
+  - **Next:** the 3D crowd members in wide shots (8-8.8 ms): animation and draw LOD for far members; then the per-mesh cost in the scene renderer (state building, string mesh names in the track) and animation on a second core, the only route toward 60.
 - FPS: the engine's own counter is under Options → Enhanced Settings → PERFORMANCE & GRAPHICS → "Show FPS Counter" (`fps_counter` in `ux0:data/gd01/enhanced.json`). `GD01_FRAMELOG` logs the fps every half second.
 - Tooling: `tools/parse-core.sh` decodes `ux0:data/psp2core-*.psp2dmp` (the dump must come from the same build). It runs vita-parse-core (Python 2 code) through `tools/parse_core_py3.py` in a venv with pyelftools 0.29. The user approved running this external tool on 2026-11-10.
 - [ ] GL shim: bind gl.cpp's pointers to vitaGL, and rewrite the shaders for the highway / track only
@@ -267,3 +270,4 @@ Alternatives:
 - 2026-11-11: Hardware run 13: profiler off by default (it cost 3-4 ms), own vitaGL build, AnimPlayer parent indices (patch 0014): songs 29-43 → 34-48 FPS.
 - 2026-11-11: Hardware run 14: Max FPS 30 (default) paced by vblank interval (patch 0015): songs hold 29.7-30.0 FPS; heaviest shot at the edge.
 - 2026-11-11: Hardware run 15: view culling (patch 0016) saves 1-2.6 ms a frame; repeatable shots with GD01_VITA_SEED (patch 0017).
+- 2026-11-11: Hardware run 16: iloverockandroll benchmark; crowd off at Max FPS 60 (44-56 FPS), impostors at half rate at 30 (holds 29.3-30.0) (patch 0018).

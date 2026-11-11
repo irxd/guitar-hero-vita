@@ -64,7 +64,7 @@ index 0861043..db05ad9 100644
          SDL_GL_SetSwapInterval(0);
          paceNs_ = 0, nextFrameNs_ = 0;
 diff --git a/gd-game-01/engine/src/ui/select_panels.cpp b/gd-game-01/engine/src/ui/select_panels.cpp
-index c9c918a..460072a 100644
+index c9c918a..cbc5c83 100644
 --- a/gd-game-01/engine/src/ui/select_panels.cpp
 +++ b/gd-game-01/engine/src/ui/select_panels.cpp
 @@ -1,6 +1,7 @@
@@ -82,8 +82,8 @@ index c9c918a..460072a 100644
 +#if defined(__vita__)
 +            {Kind::Choice, "max_fps", "Max FPS", true,
 +             "The highest frame rate the game draws at; the original ran at 60. 30 keeps every frame on screen for "
-+             "two refreshes: steady motion. 60 draws as fast as the PS Vita can, up to 60; busy stages run below it "
-+             "and vary. Unlimited also drops vertical sync (tearing).",
++             "two refreshes: steady motion. 60 draws as fast as the PS Vita can, up to 60, and leaves out the crowd "
++             "to get there; busy stages still run below it. Unlimited also drops vertical sync (tearing).",
 +             {{"30", "30 (steady)"}, {"60", "60"}, {"unlimited", "Unlimited"}}},
 +#else
              {Kind::Choice, "max_fps", "Max FPS", true,
