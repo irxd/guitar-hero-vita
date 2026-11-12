@@ -1,0 +1,54 @@
+diff --git a/gd-game-01/engine/src/scene/character.cpp b/gd-game-01/engine/src/scene/character.cpp
+index 7c318fc..c462015 100644
+--- a/gd-game-01/engine/src/scene/character.cpp
++++ b/gd-game-01/engine/src/scene/character.cpp
+@@ -2,6 +2,7 @@
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-11: PS Vita: index-based skeleton for blending, world update and servos (no per-frame string maps).
+ // Modified by irxd on 2026-11-11: PS Vita: a character's consecutive skinned pieces drawn as merged meshes with a bone palette.
++// Modified by irxd on 2026-11-12: PS Vita: each animation value's bone slot cached per clip (vitaBlendChain).
+ #include "scene/character.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -1012,6 +1013,28 @@ struct Character::VitaSkeleton {
+         boneSlot[bone] = {*bone, slot};
+         return slot;
+     }
++    // Each sampled value's slot, per clip. AnimClip::sample lists a clip's
++    // channels in the same order every call (its own bone lists), so the
++    // per-value slotFor (a hash and a string compare: most of the 3 ms a
++    // song frame spends posing characters, hardware 2026-11-12) runs once per
++    // clip. The values' bone pointers are kept and compared every call, so a
++    // different list (another clip at a reused address) is looked up again.
++    struct ClipSlots {
++        std::vector<const std::string*> bones;
++        std::vector<int> slots;
++    };
++    std::unordered_map<const void*, ClipSlots> clipSlots;
++    const std::vector<int>& slotsFor(const void* clip, const std::vector<AnimClip::Value>& values) {
++        ClipSlots& c = clipSlots[clip];
++        bool same = c.bones.size() == values.size();
++        for (size_t i = 0; same && i < values.size(); ++i) same = c.bones[i] == values[i].bone;
++        if (!same) {
++            c.bones.resize(values.size());
++            c.slots.resize(values.size());
++            for (size_t i = 0; i < values.size(); ++i) c.bones[i] = values[i].bone, c.slots[i] = slotFor(values[i].bone);
++        }
++        return c.slots;
++    }
+     std::vector<Xfm> slotValues() const {
+         std::vector<Xfm> v;
+         v.reserve(slotXfm.size());
+@@ -1116,8 +1139,10 @@ void Character::vitaBlendChain(VitaSkeleton& sk, const std::vector<Clip>& clips,
+         remaining -= w;
+         if (w <= 0) continue;
+         clips[size_t(d.clip)].clip->sample(d.frame, scratch_);
+-        for (const AnimClip::Value& v : scratch_) {
+-            const int slot = sk.slotFor(v.bone);
++        const std::vector<int>& slots = sk.slotsFor(&*clips[size_t(d.clip)].clip, scratch_);
++        for (size_t vi = 0; vi < scratch_.size(); ++vi) {
++            const AnimClip::Value& v = scratch_[vi];
++            const int slot = slots[vi];
+             if (slot < 0) continue;
+             if (rootMotion_ && sk.slotFacing[size_t(slot)]) continue;  // use_delta: the dummy bone
+             if (!sk.inAcc[size_t(slot)]) sk.inAcc[size_t(slot)] = 1, sk.touched.push_back(slot);
