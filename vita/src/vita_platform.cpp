@@ -29,6 +29,7 @@
 #include <psp2/io/stat.h>
 #include <psp2/kernel/clib.h>
 #include <psp2/kernel/cpu.h>
+#include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
 #include <psp2/power.h>
 
@@ -120,6 +121,19 @@ int gPhaseCount = 0, gPhase = -1;
 uint64_t gPhaseStart = 0;
 const char* const kLoopPhase = "loop";
 
+// The frame stats' and phases' clock, in ns: sceKernelGetProcessTimeLow costs
+// 0.33 us a call, SDL_GetTicksNS 1.4 us (hardware, 2026-11-12), and level 2
+// reads it around every draw. Its 32-bit microseconds wrap every 71 minutes:
+// extended here (main thread only).
+uint64_t phaseNow() {
+    static uint32_t last = 0;
+    static uint64_t high = 0;
+    const uint32_t us = sceKernelGetProcessTimeLow();
+    if (us < last) high += 1ull << 32;
+    last = us;
+    return (high + us) * 1000;
+}
+
 int phaseSlot(const char* name) {
     for (int i = 0; i < gPhaseCount; ++i)
         if (gPhases[i].name == name) return i;
@@ -136,11 +150,11 @@ void switchPhase(const char* name, uint64_t now) {
 
 // A draw call: counted (and its vitaGL time added) to the current phase.
 struct DrawTimer {
-    uint64_t start = gPhaseLevel >= 2 ? SDL_GetTicksNS() : 0;
+    uint64_t start = gPhaseLevel >= 2 ? phaseNow() : 0;
     ~DrawTimer() {
         if (gPhaseLevel < 1 || gPhase < 0) return;
         ++gPhases[gPhase].draws;  // counted from level 1 (free), timed from level 2
-        if (gPhaseLevel >= 2) gPhases[gPhase].submitNs += SDL_GetTicksNS() - start;
+        if (gPhaseLevel >= 2) gPhases[gPhase].submitNs += phaseNow() - start;
     }
 };
 
@@ -148,10 +162,10 @@ struct DrawTimer {
 // glBlitFramebuffer): on vitaGL these wait for the GPU to finish the frame so
 // far, so their time is GPU time showing up on the CPU.
 struct ReadbackTimer {
-    uint64_t start = SDL_GetTicksNS();
+    uint64_t start = phaseNow();
     ~ReadbackTimer() {
         if (gPhase < 0) return;
-        gPhases[gPhase].readbackNs += SDL_GetTicksNS() - start;
+        gPhases[gPhase].readbackNs += phaseNow() - start;
         ++gPhases[gPhase].readbacks;
     }
 };
@@ -732,9 +746,9 @@ void initVitaGl() {
         constexpr int kReads = 2000;
         const uint64_t t0 = SDL_GetTicksNS();
         uint64_t sink = 0;
-        for (int i = 0; i < kReads; ++i) sink += SDL_GetTicksNS();
+        for (int i = 0; i < kReads; ++i) sink += phaseNow();
         const uint64_t t1 = SDL_GetTicksNS();
-        SDL_Log("vita: frame phases level %d (GD01_VITA_PHASES); SDL_GetTicksNS costs %.2f us a call%s", gPhaseLevel,
+        SDL_Log("vita: frame phases level %d (GD01_VITA_PHASES); the phase clock (sceKernelGetProcessTimeLow) costs %.2f us a call%s", gPhaseLevel,
                 double(t1 - t0) / 1e3 / kReads, sink ? "" : ".");
     }
     if (displayScenes > 0 || fboScenes > 0)
@@ -854,7 +868,7 @@ void setSwapInterval(int vblanks) {
 void countCulledDraw() { ++gFrame.culled; }
 
 void profilePhase(const char* name) {
-    if (kFrameStats && gPhaseLevel >= 1) switchPhase(name, SDL_GetTicksNS());
+    if (kFrameStats && gPhaseLevel >= 1) switchPhase(name, phaseNow());
 }
 
 namespace {
@@ -866,13 +880,13 @@ void profilePush(const char* name) {
     if (!kFrameStats || gPhaseLevel < 2) return;
     if (gPhaseDepth < 8) gPhaseStack[gPhaseDepth] = gPhase >= 0 ? gPhases[gPhase].name : nullptr;
     ++gPhaseDepth;
-    switchPhase(name, SDL_GetTicksNS());
+    switchPhase(name, phaseNow());
 }
 
 void profilePop() {
     if (!kFrameStats || gPhaseLevel < 2 || gPhaseDepth == 0) return;
     --gPhaseDepth;
-    switchPhase(gPhaseDepth < 8 ? gPhaseStack[gPhaseDepth] : nullptr, SDL_GetTicksNS());
+    switchPhase(gPhaseDepth < 8 ? gPhaseStack[gPhaseDepth] : nullptr, phaseNow());
 }
 
 }  // namespace vita
@@ -967,9 +981,9 @@ bool __wrap_SDL_GL_SwapWindow(SDL_Window* /*window*/) {
         }
         SDL_Log("vita: screenshot frame %u -> %s", frame, path);
     }
-    const uint64_t swapStart = SDL_GetTicksNS();
+    const uint64_t swapStart = phaseNow();
     vglSwapBuffers(GL_FALSE);
-    const uint64_t now = SDL_GetTicksNS();
+    const uint64_t now = phaseNow();
     if (kFrameStats) frameStatsSwap(swapStart, now);
     // Periodic reports only in measured runs (GD01_VITA_PHASES >= 1): even
     // queued to the log thread, a write to the memory card made the next
