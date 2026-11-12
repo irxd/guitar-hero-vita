@@ -17,7 +17,7 @@ endif()
 project(gd01_vita VERSION 1.1.11 LANGUAGES C CXX)
 include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
 
-set(VITA_APP_NAME "gd01")
+set(VITA_APP_NAME "GH Vita")
 set(VITA_TITLEID  "GDDE00001")   # placeholder title id, 9 chars
 set(VITA_VERSION  "01.00")
 
@@ -139,7 +139,7 @@ target_link_options(gd01 PRIVATE "-Wl,--defsym=__sce_headroom=0x2000")
 vita_create_self(eboot.bin gd01 UNSAFE)
 vita_create_vpk(gd01.vpk ${VITA_TITLEID} eboot.bin
   VERSION ${VITA_VERSION}
-  NAME ${VITA_APP_NAME}
+  NAME "${VITA_APP_NAME}"
   # LiveArea art (our own; bg.png and pic0.png come from tools/make-livearea-art.py).
   FILE ${CMAKE_CURRENT_SOURCE_DIR}/../sce_sys/icon0.png sce_sys/icon0.png
   FILE ${CMAKE_CURRENT_SOURCE_DIR}/../sce_sys/pic0.png sce_sys/pic0.png
