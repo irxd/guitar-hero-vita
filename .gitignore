@@ -33,3 +33,6 @@ param.sfo
 
 # Local copies of built VPKs
 /build-out/
+
+# macOS folder metadata
+.DS_Store
