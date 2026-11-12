@@ -21,8 +21,17 @@ Working on the Vita:
 - Boot logos, main menu, Quick Play song list with previews, Enhanced Settings
 - Songs load and play with the full stage: venue, band, crowd, highway, HUD, pause menu, retry
 - Steady 30 FPS with the full stage, and 60 FPS options (see [Performance](#performance))
-- Play on the Vita's buttons: Green D-pad ←, Red L, Yellow R, Blue ○, Orange ✕, strum
-  D-pad ↑/↓
+- Play on the Vita's buttons, with two layouts in Enhanced Settings → Button Layout:
+
+  | | Green | Red | Yellow | Blue | Orange | Strum |
+  |---|---|---|---|---|---|---|
+  | Layout 1 (default) | D-pad ← | L | R | ○ | ✕ | D-pad ↑/↓ |
+  | Layout 2 | D-pad ← | D-pad ↑ | △ | ○ | ✕ | L / R (optional) |
+
+  A fret press plays the note on its own, so strumming is optional. Single buttons can
+  be rebound in the Gamepads screen, which overrides the layout.
+- Shake the Vita for whammy (Enhanced Settings → Shake for Whammy, off by default)
+- Our own LiveArea art and bubble icon ("GH Vita")
 - Memory stays stable however many songs you play
 
 Known limitations:
@@ -30,15 +39,14 @@ Known limitations:
 - **Movies** (intro and in-game videos) play in sync with their sound but choppy, at about
   8 pictures a second: the engine decodes MPEG-2 in software, and the Vita's CPU is short of
   real time even with NEON code paths
-- **Button remapping** on the Vita is not done yet; the layout above is fixed for now
-- **Not tested yet:** Career mode, tutorials, the Gamepads screen; multiplayer (face-off) needs a
+- **Not tested yet:** Career mode, tutorials, the Gamepads screen, Button Layout 2 in a song; multiplayer (face-off) needs a
   second controller (a PS TV, or a Vita with a DualShock plugin such as ds4vita) and is untested
 - **Vita-only differences from the PC version:** no post-processing effects by default
   (bloom, depth of field), no fade at the far end of the highway, no AI upscaling, HDR or
   MIDI guitars
 
-Still to do before a release: button remapping, smoother movies, our own LiveArea art and
-the attribution on the credits screen, then a VPK release with its source.
+Still to do before a release: smoother movies and the attribution on the credits screen,
+then a VPK release with its source.
 Full record of every hardware run: [docs/port-plan.md](docs/port-plan.md).
 
 ## Performance
