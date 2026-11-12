@@ -88,7 +88,7 @@ def render(w, h, dim):
     # Light purple wash over the warm bricks: mix in a purple-tinted copy of the
     # image's brightness.
     lum = img @ np.array([0.30, 0.55, 0.15], np.float32)
-    purple = lum[..., None] * np.array([1.0, 0.6, 1.4], np.float32)
+    purple = lum[..., None] * np.array([0.9, 0.6, 1.55], np.float32)
     img = img * (1 - PURPLE) + purple * PURPLE
     vig = np.clip(1 - 0.35 * (nx ** 2 + ny ** 2), 0.2, 1)
     img = img * vig[..., None] * dim
