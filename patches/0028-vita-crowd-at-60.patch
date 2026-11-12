@@ -1,0 +1,129 @@
+diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
+index a21057c..bb484ea 100644
+--- a/gd-game-01/engine/src/app.cpp
++++ b/gd-game-01/engine/src/app.cpp
+@@ -11,6 +11,7 @@
+ // Modified by irxd on 2026-11-12: PS Vita: settings the Vita does not show keep their defaults (enhanced); Shake for Whammy off by default.
+ // Modified by irxd on 2026-11-12: PS Vita: Enhanced Settings Button Layout (1 or 2).
+ // Modified by irxd on 2026-11-12: PS Vita: the second highway freed before the renderer shuts down (run).
++// Modified by irxd on 2026-11-12: PS Vita: at 60 FPS 4 3D crowd members (8 at 30) and the cut-outs refreshed a third a frame.
+ #include "app.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -451,7 +452,8 @@ private:
+     // PS Vita Performance Mode > Notes Only: the next song loads no venue,
+     // and one already loaded is not drawn (the highway on black).
+     bool vitaNotesOnly_ = false;
+-    static constexpr int kVitaCrowdMembers = 8;  // Crowd on: the most 3D members
++    static constexpr int kVitaCrowdMembers = 8;    // Crowd on: the most 3D members (30 FPS)
++    static constexpr int kVitaCrowdMembers60 = 4;  // the same at 60 FPS (user, 2026-11-12: ~2 ms of the 60 FPS frame)
+ #endif
+     // [I] Enhanced Settings' backdrop: a medium venue (big_club) posed once and
+     // frozen, filmed close on the singer's microphone. Loaded at startup and
+@@ -2139,7 +2141,12 @@ void App::applyEnhanced() {
+ #if defined(__vita__)
+     renderer_.setFrameCap(vitaFrameCap(enhanced("max_fps").str()));
+     vitaNotesOnly_ = enhanced("max_fps").str() == "notes";
+-    CrowdRenderer::setVitaMemberCap(enhancedOn("crowd") ? kVitaCrowdMembers : -1);
++    {
++        // 60 FPS: fewer 3D members, and the cut-outs re-rendered a third a frame (each at 20 Hz).
++        const bool at60 = enhanced("max_fps").str() == "60";
++        CrowdRenderer::setVitaMemberCap(enhancedOn("crowd") ? (at60 ? kVitaCrowdMembers60 : kVitaCrowdMembers) : -1);
++        CrowdRenderer::setVitaImpostorGroups(at60 ? 3 : 2);
++    }
+     vita::setButtonLayout(enhancedInt("button_layout"));
+ #else
+     renderer_.setFrameCap(enhanced("max_fps").str() == "unlimited" ? 0 : std::clamp(enhancedInt("max_fps"), 30, 1000));
+diff --git a/gd-game-01/engine/src/render/crowd_renderer.cpp b/gd-game-01/engine/src/render/crowd_renderer.cpp
+index f30bc1b..54ff147 100644
+--- a/gd-game-01/engine/src/render/crowd_renderer.cpp
++++ b/gd-game-01/engine/src/render/crowd_renderer.cpp
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-11: PS Vita: crowd hidden at Max FPS 60; impostors refreshed and members animated half per frame.
++// Modified by irxd on 2026-11-12: PS Vita: the impostors refreshed in a set number of groups (3 at 60 FPS).
+ // Modified by irxd on 2026-11-11: PS Vita: Crowd setting (on: at most 8 3D members, the nearest first; off: hidden).
+ #include "render/crowd_renderer.h"
+ 
+@@ -23,6 +24,7 @@ constexpr uint32_t kIdle = 8, kBad = 16, kOk = 32, kGreat = 128;
+ int gCheatCrowd = 0;  // $cheat_crowd for the next venue load
+ #if defined(__vita__)
+ int gVitaMemberCap = 0;  // Crowd setting: the most 3D members (0: all, -1: no crowd)
++int gVitaImpostorGroups = 2;  // impostors re-rendered in this many groups, one a frame
+ #endif
+ 
+ std::map<std::string, int> intDefines(const DataNode& root) {
+@@ -183,6 +185,7 @@ void CrowdRenderer::setCheatCrowd(int mode) { gCheatCrowd = mode; }
+ #if defined(__vita__)
+ void CrowdRenderer::setVitaMemberCap(int members) { gVitaMemberCap = std::max(-1, members); }
+ bool CrowdRenderer::vitaShown() { return gVitaMemberCap >= 0; }
++void CrowdRenderer::setVitaImpostorGroups(int groups) { gVitaImpostorGroups = std::clamp(groups, 1, 6); }
+ #endif
+ 
+ void CrowdRenderer::tempoEvent(const std::string& event) {
+@@ -432,17 +435,19 @@ void CrowdRenderer::update(float beat, float ms, int excitement, bool newShot, i
+         for (int m : *l)
+             if (m >= 6) polled.push_back(m);
+ #if defined(__vita__)
+-    // PS Vita: half the members animate each frame (each at 15 Hz at Max FPS
+-    // 30), the archetypes on the frames their impostors are re-rendered
+-    // (renderImpostors, later this frame). poll takes the song's beat and ms,
+-    // so a member polled every other frame stays in time.
++    // PS Vita: half the 3D members animate each frame (each at 15 Hz at Max
++    // FPS 30), the archetypes (0..5) on the frames their impostors are
++    // re-rendered (renderImpostors, later this frame; gVitaImpostorGroups).
++    // poll takes the song's beat and ms, so a member polled every other frame
++    // stays in time.
+     const int vitaFrame = vitaImpostorFrame_;
+ #endif
+     for (int k : polled) {
+         Member& a = members_[size_t(k)];
+         if (!a.character) continue;
+ #if defined(__vita__)
+-        if (vitaFrame > 0 && (k & 1) != (vitaFrame & 1)) continue;
++        if (vitaFrame > 0 && (k < 6 ? k % gVitaImpostorGroups != vitaFrame % gVitaImpostorGroups : (k & 1) != (vitaFrame & 1)))
++            continue;
+ #endif
+         a.character->poll(beat, ms, frameScale_);
+         if (int hand = a.character->hand(); hand >= 0 && hand != a.hand) {  // set_hand
+@@ -478,14 +483,15 @@ void CrowdRenderer::renderImpostors(const Xfm& camera) {
+ #if defined(__vita__)
+     // PS Vita: each impostor is a full character drawn into its own render
+     // target (3.7 ms a frame for the six in wide shots, hardware 2026-11-11):
+-    // the even ones on one frame, the odd ones on the next, all on the first.
++    // one group of them a frame (gVitaImpostorGroups: halves at 30 FPS,
++    // thirds at 60 FPS), all on the first.
+     const int vitaFrame = vitaImpostorFrame_++;
+ #endif
+     for (int k = 0; k < 6 && k < int(members_.size()); ++k) {
+         Member& a = members_[size_t(k)];
+         if (!a.target || !a.character) continue;
+ #if defined(__vita__)
+-        if (vitaFrame > 0 && (k & 1) != (vitaFrame & 1)) continue;
++        if (vitaFrame > 0 && k % gVitaImpostorGroups != vitaFrame % gVitaImpostorGroups) continue;
+ #endif
+         // FUN_00172350: R_imp = C * M^T * R_A (row vectors), the archetype seen
+         // from the main camera's direction as if it faced the crowd frame M,
+diff --git a/gd-game-01/engine/src/render/crowd_renderer.h b/gd-game-01/engine/src/render/crowd_renderer.h
+index 4cd23e6..d5b6a9d 100644
+--- a/gd-game-01/engine/src/render/crowd_renderer.h
++++ b/gd-game-01/engine/src/render/crowd_renderer.h
+@@ -2,6 +2,7 @@
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-11: PS Vita: crowd hidden at Max FPS 60; impostors refreshed half per frame.
+ // Modified by irxd on 2026-11-11: PS Vita: Crowd setting (on: at most 8 3D members, the nearest first; off: hidden).
++// Modified by irxd on 2026-11-12: PS Vita: impostor refresh groups (setVitaImpostorGroups).
+ #pragma once
+ 
+ #include <array>
+@@ -59,6 +60,9 @@ public:
+     // crowd is hidden (neither animated nor drawn; VenueRenderer asks vitaShown).
+     static void setVitaMemberCap(int members);
+     static bool vitaShown();
++    // The crowd cut-outs (impostors) re-rendered in this many groups, one group
++    // a frame (2 at 30 FPS: each at 15 Hz; 3 at 60 FPS: each at 20 Hz).
++    static void setVitaImpostorGroups(int groups);
+ #endif
+ 
+ private:

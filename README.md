@@ -53,15 +53,17 @@ Options → Enhanced Settings → Performance & Graphics:
 |---|---|---|
 | 30 FPS (default) | On (default) | Steady 30 FPS. After loading, at most 1 late frame in any 5 seconds |
 | 30 FPS | Off | Steady 30 FPS, more headroom (17–19 ms of the 33 ms a frame) |
-| 60 FPS | On | 32–55 FPS; the widest crowd shots drop to the low 30s |
+| 60 FPS | On | 33–57 FPS, 46 on average; the widest crowd shots drop to the low 30s |
 | 60 FPS | Off | 47–58 FPS |
 | Notes Only | (not shown) | Locked 60 FPS; just the highway on black, ~3 ms a frame |
 
 - **30 FPS** shows every frame for exactly two screen refreshes, so motion stays even.
   60 FPS is smoother when it holds, but busy stages still run below it.
-- **Crowd On** draws up to 8 people nearest the camera in 3D and the rest as flat
-  cut-outs; in the widest shots this halves the crowd's cost (8.4 → 4.5 ms a frame)
-  against drawing them all in 3D, and the crowd looks just as full.
+- **Crowd On** draws up to 8 people nearest the camera in 3D (4 at 60 FPS) and the rest
+  as flat cut-outs; in the widest shots this halves the crowd's cost (8.4 → 4.5 ms a frame)
+  against drawing them all in 3D, and the crowd looks just as full. At 60 FPS the cut-outs
+  also update a little less often (20 times a second instead of 30), which saves another
+  2 ms a frame together with the 4 people (43.7 → 46.0 FPS on average).
 - **Notes Only** loads no stage, band or crowd: songs also start faster and use less memory.
 
 Particles FX (sparks, smoke, the highway's hit effects), same song at 60 FPS with the crowd
