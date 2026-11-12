@@ -37,14 +37,14 @@ index 34e83aa..1d0ecc0 100644
      renderer_.setFrameCap(enhanced("max_fps").str() == "unlimited" ? 0 : std::clamp(enhancedInt("max_fps"), 30, 1000));
  #endif
 diff --git a/gd-game-01/engine/src/input/input.cpp b/gd-game-01/engine/src/input/input.cpp
-index f31a694..f49b14b 100644
+index f31a694..d4adc80 100644
 --- a/gd-game-01/engine/src/input/input.cpp
 +++ b/gd-game-01/engine/src/input/input.cpp
 @@ -4,6 +4,7 @@
  // Modified by irxd on 2026-11-11: PS Vita joypad frets moved to D-pad Left, L, R, Circle, Cross.
  // Modified by irxd on 2026-11-12: PS Vita: a D-pad fret is only its direction outside a song (no select on D-pad Left).
  // Modified by irxd on 2026-11-12: PS Vita: Shake for Whammy on the motion sensor.
-+// Modified by irxd on 2026-11-12: PS Vita: Button Layout 2 (D-pad Left, D-pad Up, Triangle, Circle, Cross; no strum).
++// Modified by irxd on 2026-11-12: PS Vita: Button Layout 2 (D-pad Left, D-pad Up, Triangle, Circle, Cross; optional strum on L / R).
  #include "input/input.h"
  
  #include <algorithm>
@@ -82,14 +82,14 @@ index f31a694..f49b14b 100644
          padCommon({btn(SDL_GAMEPAD_BUTTON_BACK)});
 +        if (gVitaLayout == 2) {
 +            // Layout 2 (Enhanced > Button Layout): D-pad Left, D-pad Up,
-+            // Triangle, Circle, Cross; no strum (a gamepad's frets strum).
++            // Triangle, Circle, Cross; strum (optional: a gamepad's frets strum) on L / R.
 +            set(C::Green, {btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT)});
 +            set(C::Red, {btn(SDL_GAMEPAD_BUTTON_DPAD_UP)});
 +            set(C::Yellow, {btn(SDL_GAMEPAD_BUTTON_NORTH)});
 +            set(C::Blue, {btn(SDL_GAMEPAD_BUTTON_EAST)});
 +            set(C::Orange, {btn(SDL_GAMEPAD_BUTTON_SOUTH)});
-+            set(C::StrumUp, {});
-+            set(C::StrumDown, {});
++            set(C::StrumUp, {btn(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER)});
++            set(C::StrumDown, {btn(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER)});
 +            set(C::Whammy, {axis(Kind::AxisAny, SDL_GAMEPAD_AXIS_RIGHTX), axis(Kind::AxisAny, SDL_GAMEPAD_AXIS_RIGHTY)});
 +            set(C::Gyro, {btn(SDL_GAMEPAD_BUTTON_BACK)});
 +            break;
@@ -117,8 +117,20 @@ index f31a694..f49b14b 100644
      static const std::array<Bindings, 6> kDefaults = {defaults(Profile::Ps2Guitar), defaults(Profile::XboxGuitar),
                                                        defaults(Profile::RockBand), defaults(Profile::Joypad),
                                                        defaults(Profile::Keyboard), defaults(Profile::Midi)};
+@@ -773,6 +815,11 @@ void Input::update(Pad& p, uint64_t ts, std::vector<InputEvent>& out) {
+             if (!inGame() && c >= size_t(C::Green) && c <= size_t(C::Orange) && s.kind == Kind::Button &&
+                 s.index >= SDL_GAMEPAD_BUTTON_DPAD_UP && s.index <= SDL_GAMEPAD_BUTTON_DPAD_RIGHT)
+                 continue;
++            // Likewise a strum on L / R (Button Layout 2) strums only in a
++            // song: a strum is also the menus' Up / Down.
++            if (!inGame() && (c == size_t(C::StrumUp) || c == size_t(C::StrumDown)) && s.kind == Kind::Button &&
++                (s.index == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER || s.index == SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER))
++                continue;
+ #endif
+             now = now || sourceActive(p, s, was[c]);
+         }
 diff --git a/gd-game-01/engine/src/ui/select_panels.cpp b/gd-game-01/engine/src/ui/select_panels.cpp
-index 84f01b8..5381919 100644
+index 84f01b8..7962e1b 100644
 --- a/gd-game-01/engine/src/ui/select_panels.cpp
 +++ b/gd-game-01/engine/src/ui/select_panels.cpp
 @@ -4,6 +4,7 @@
@@ -218,7 +230,7 @@ index 84f01b8..5381919 100644
 +        struct Layout { const char* value; const char* name; B frets[5]; std::vector<B> strum; };
 +        static const Layout kLayouts[2] = {
 +            {"1", "Layout 1", {B::DpadLeft, B::L, B::R, B::Circle, B::Cross}, {B::DpadUp, B::DpadDown}},
-+            {"2", "Layout 2", {B::DpadLeft, B::DpadUp, B::Triangle, B::Circle, B::Cross}, {}},
++            {"2", "Layout 2", {B::DpadLeft, B::DpadUp, B::Triangle, B::Circle, B::Cross}, {B::L, B::R}},
 +        };
 +        const std::string now = host_.enhancedValue("button_layout");
 +        for (const Layout& l : kLayouts) {
