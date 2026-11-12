@@ -198,6 +198,11 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
 ### Phase 4: Vita polish and release (1–2 weeks)
 - [ ] Input map, default (user's layout, 2026-11-11, patch 0004): Green = D-pad ←, Red = L, Yellow = R, Blue = ○, Orange = ✕; strum = D-pad up/down; Star Power = Select (+ optional tilt via the motion sensor); whammy = right stick; pause = Start. Optional alternatives: front-touch fret zones, rear-touch strum. All remappable via the GAMEPADS screen. Labelled as a "handheld mode".
 - [ ] FMV: keep it if ≥ 30 fps, otherwise skip it with a log line
+- [ ] **Later (asked on Reddit, 2026-11-13): help for fast same-note runs (alt-strum sections).** On the Vita a fret press already plays a note, but a fast run of one note means hammering one button or alternating D-pad ↑/↓.
+  1. **Rear touchpad strum (build first):** each new finger touch on the rear pad is a strum, so two fingers drummed on the back work like alternate picking. Input-only (SDL3 reports the rear pad as its own touch device). Enhanced Settings toggle, off by default; ignore touches that stay down (grip) and count only fresh taps, maybe only in the middle of the pad.
+  2. **Auto-strum assist (maybe, after 1):** while a button is held, notes on the held frets are hit at their exact time. Not fixed-rate rapid fire: GH1 penalises strums with no note, so that would break the combo. Touches gameplay code; label it as an assist, off by default.
+  3. Front-screen swipe strum: skipped (thumbs are on the buttons).
+  Related idea from the user: Star Power on a rear tap.
 - [x] Our own LiveArea assets (2026-11-12): icon0 and startup "GH / VITA" lettering drawn by the user; bg.png and pic0.png are a procedural orange-red brick wall (pic0 with the icon lettering bottom right) from `tools/make-livearea-art.py` (earlier drafts: official GH1 art, removed; a procedural stage; an Unsplash photo). Packed via `FILE` entries in `vita/CMakeLists.txt`.
 - [ ] Credits screen shows the attribution line.
 - [ ] `CHANGES.md`, a VPK build script, GitHub release with source
