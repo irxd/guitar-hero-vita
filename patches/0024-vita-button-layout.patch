@@ -1,0 +1,159 @@
+diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
+index 34e83aa..1d0ecc0 100644
+--- a/gd-game-01/engine/src/app.cpp
++++ b/gd-game-01/engine/src/app.cpp
+@@ -9,6 +9,7 @@
+ // Modified by irxd on 2026-11-11: PS Vita: Performance Mode Notes Only (no venue) and the Crowd setting.
+ // Modified by irxd on 2026-11-11: PS Vita: song previews read only their window of the .vgs, on a worker thread (songPreview).
+ // Modified by irxd on 2026-11-12: PS Vita: settings the Vita does not show keep their defaults (enhanced); Shake for Whammy off by default.
++// Modified by irxd on 2026-11-12: PS Vita: Enhanced Settings Button Layout (1 or 2).
+ #include "app.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -178,7 +179,8 @@ std::map<std::string, Json> profileValues(bool deck) {
+     // 2026-11-11), so 30 is steady where 60 would swing between 35 and 48.
+     // Crowd on: at most 8 3D members (the widest shots drew ~23, 9 ms a frame).
+     for (auto& [k, v] : std::map<std::string, Json>{{"screen_mode", t("fullscreen")}, {"max_fps", t("30")}, {"internal_res", t("448")},
+-                                                    {"bokeh", t("none")}, {"crowd", b(true)}, {"shake_whammy", b(false)}})
++                                                    {"bokeh", t("none")}, {"crowd", b(true)}, {"shake_whammy", b(false)},
++                                                    {"button_layout", t("1")}})
+         d[k] = v;
+ #else
+ #if defined(GD01_STEAM_DECK)
+@@ -239,6 +241,7 @@ const std::map<std::string, std::set<std::string>>& enhancedChoices() {
+         // PS Vita: a 60 Hz screen; Performance Mode's Notes Only runs at 60
+         // without the venue. Unlimited (benchmarks) has no menu entry.
+         {"max_fps", {"30", "60", "notes", "unlimited"}},
++        {"button_layout", {"1", "2"}},  // PS Vita: Enhanced > Button Layout
+ #else
+         {"max_fps", {"60", "120", "144", "240", "unlimited"}},
+ #endif
+@@ -2136,6 +2139,7 @@ void App::applyEnhanced() {
+     renderer_.setFrameCap(vitaFrameCap(enhanced("max_fps").str()));
+     vitaNotesOnly_ = enhanced("max_fps").str() == "notes";
+     CrowdRenderer::setVitaMemberCap(enhancedOn("crowd") ? kVitaCrowdMembers : -1);
++    vita::setButtonLayout(enhancedInt("button_layout"));
+ #else
+     renderer_.setFrameCap(enhanced("max_fps").str() == "unlimited" ? 0 : std::clamp(enhancedInt("max_fps"), 30, 1000));
+ #endif
+diff --git a/gd-game-01/engine/src/input/input.cpp b/gd-game-01/engine/src/input/input.cpp
+index f31a694..f49b14b 100644
+--- a/gd-game-01/engine/src/input/input.cpp
++++ b/gd-game-01/engine/src/input/input.cpp
+@@ -4,6 +4,7 @@
+ // Modified by irxd on 2026-11-11: PS Vita joypad frets moved to D-pad Left, L, R, Circle, Cross.
+ // Modified by irxd on 2026-11-12: PS Vita: a D-pad fret is only its direction outside a song (no select on D-pad Left).
+ // Modified by irxd on 2026-11-12: PS Vita: Shake for Whammy on the motion sensor.
++// Modified by irxd on 2026-11-12: PS Vita: Button Layout 2 (D-pad Left, D-pad Up, Triangle, Circle, Cross; no strum).
+ #include "input/input.h"
+ 
+ #include <algorithm>
+@@ -18,6 +19,9 @@
+ #include "data/json.h"
+ #include "input/midi_in.h"
+ #include "platform/paths.h"
++#if defined(__vita__)
++#include "vita_settings.h"  // the Vita port's vita/src: vita::setButtonLayout
++#endif
+ 
+ namespace {
+ 
+@@ -155,6 +159,17 @@ const char* Input::profileName(Profile p) {
+     return "";
+ }
+ 
++#if defined(__vita__)
++// PS Vita: Enhanced Settings > Button Layout (1 or 2), set by App
++// (vita::setButtonLayout, declared in vita_settings.h).
++namespace {
++int gVitaLayout = 1;
++}
++namespace vita {
++void setButtonLayout(int layout) { gVitaLayout = layout == 2 ? 2 : 1; }
++}  // namespace vita
++#endif
++
+ // The default bindings (universal_mechanisms.md 1.1.4): the doc's keyboard
+ // and XInput (PS2 layout) tables; the guitars as the original's
+ // beatmatch_controller.dta; Generic MIDI starts empty (the player binds it).
+@@ -203,6 +218,20 @@ Input::Bindings Input::defaults(Profile p) {
+         // unplayable. The frets: D-pad Left, L, R, Circle, Cross (the user's
+         // layout, 2026-11-11); strum on D-pad Up / Down.
+         padCommon({btn(SDL_GAMEPAD_BUTTON_BACK)});
++        if (gVitaLayout == 2) {
++            // Layout 2 (Enhanced > Button Layout): D-pad Left, D-pad Up,
++            // Triangle, Circle, Cross; no strum (a gamepad's frets strum).
++            set(C::Green, {btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT)});
++            set(C::Red, {btn(SDL_GAMEPAD_BUTTON_DPAD_UP)});
++            set(C::Yellow, {btn(SDL_GAMEPAD_BUTTON_NORTH)});
++            set(C::Blue, {btn(SDL_GAMEPAD_BUTTON_EAST)});
++            set(C::Orange, {btn(SDL_GAMEPAD_BUTTON_SOUTH)});
++            set(C::StrumUp, {});
++            set(C::StrumDown, {});
++            set(C::Whammy, {axis(Kind::AxisAny, SDL_GAMEPAD_AXIS_RIGHTX), axis(Kind::AxisAny, SDL_GAMEPAD_AXIS_RIGHTY)});
++            set(C::Gyro, {btn(SDL_GAMEPAD_BUTTON_BACK)});
++            break;
++        }
+         set(C::Green, {btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT)});
+         set(C::Red, {btn(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER)});
+         set(C::Yellow, {btn(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER)});
+@@ -455,6 +484,19 @@ void Input::save() const {
+ 
+ const Input::Bindings& Input::bindingsFor(const std::string& guid, Profile p) const {
+     if (auto it = overrides_.find(guid); it != overrides_.end()) return it->second;
++#if defined(__vita__)
++    if (p == Profile::Joypad) {  // the chosen Button Layout
++        static const std::array<Bindings, 2> kLayouts = [] {
++            const int keep = gVitaLayout;
++            std::array<Bindings, 2> l;
++            gVitaLayout = 1, l[0] = defaults(Profile::Joypad);
++            gVitaLayout = 2, l[1] = defaults(Profile::Joypad);
++            gVitaLayout = keep;
++            return l;
++        }();
++        return kLayouts[size_t(gVitaLayout - 1)];
++    }
++#endif
+     static const std::array<Bindings, 6> kDefaults = {defaults(Profile::Ps2Guitar), defaults(Profile::XboxGuitar),
+                                                       defaults(Profile::RockBand), defaults(Profile::Joypad),
+                                                       defaults(Profile::Keyboard), defaults(Profile::Midi)};
+diff --git a/gd-game-01/engine/src/ui/select_panels.cpp b/gd-game-01/engine/src/ui/select_panels.cpp
+index 84f01b8..47e6c18 100644
+--- a/gd-game-01/engine/src/ui/select_panels.cpp
++++ b/gd-game-01/engine/src/ui/select_panels.cpp
+@@ -4,6 +4,7 @@
+ // Modified by irxd on 2026-11-11: PS Vita: Max FPS 30 (default, steady) or 60, paced by vitaGL's vblank interval.
+ // Modified by irxd on 2026-11-11: PS Vita: Performance Mode (30 FPS, 60 FPS, Notes Only) and the Crowd setting.
+ // Modified by irxd on 2026-11-12: PS Vita: Enhanced Settings without the settings the Vita cannot use; Shake for Whammy shown.
++// Modified by irxd on 2026-11-12: PS Vita: Button Layout setting.
+ #include "ui/select_panels.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -1086,6 +1087,12 @@ private:
+              "Shake the phone during a song to use the whammy bar: keep shaking to hold it, stop to let go. Whammy bends the "
+              "note and fills Star Power faster on a Star Power note. A real whammy bar keeps working. Android only."},
+ #elif defined(__vita__)
++            {Kind::Choice, "button_layout", "Button Layout", true,
++             "The Vita's buttons for the frets, green to orange. Layout 1: D-pad Left, L, R, Circle, Cross; strum "
++             "on D-pad Up / Down. Layout 2: D-pad Left, D-pad Up, Triangle, Circle, Cross. Strumming is optional: "
++             "a fret press plays the note. Buttons changed in GAMEPADS > Customize inputs take precedence; Reset to "
++             "Defaults there goes back to this layout.",
++             {{"1", "Layout 1"}, {"2", "Layout 2"}}},
+             {Kind::Check, "shake_whammy", "Shake for Whammy", true,
+              "Shake the Vita during a song to use the whammy bar: keep shaking to hold it, stop to let go. Whammy bends "
+              "the note and fills Star Power faster on a Star Power note. The right stick keeps working."},
+@@ -1381,7 +1388,14 @@ private:
+     }
+     // A choice of exactly two values is shown and used as a check box: ticked
+     // is the second value (e.g. Hammer-ons & Pull-offs: Original / Forgiving).
++#if defined(__vita__)
++    // PS Vita: Button Layout names its two values (Layout 1 / Layout 2), not on / off.
++    static bool isToggle(const Item& it) {
++        return it.kind == Kind::Choice && it.options.size() == 2 && std::string(it.key) != "button_layout";
++    }
++#else
+     static bool isToggle(const Item& it) { return it.kind == Kind::Choice && it.options.size() == 2; }
++#endif
+     static int optionIndex(const Item& it, const std::string& v) {
+         for (size_t k = 0; k < it.options.size(); ++k)
+             if (v == it.options[k].value) return int(k);

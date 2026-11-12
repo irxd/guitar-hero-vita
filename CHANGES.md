@@ -51,6 +51,7 @@ platforms build exactly as upstream.
 | 2026-11-12 | `0022-vita-script-mod-wrap.patch` | `gd-game-01/engine/src/script/script.cpp` | PS Vita: the script `mod` wraps negatives into the range (`fmod` kept the sign: scrolling up from the first item of a store list gave index -1, shown as "_shop_desc" for $0; the tutorial list wraps the same way). An upstream bug on every platform, guarded for the Vita only |
 | 2026-11-12 | `0023-vita-settings-menu.patch` | `gd-game-01/engine/src/app.cpp`, `gd-game-01/engine/src/ui/select_panels.cpp`, `gd-game-01/engine/src/input/input.cpp` | PS Vita: Enhanced Settings without the 33 settings and buttons the Vita cannot use or has no frame time for (Modes presets, resolution, backends, screen mode, upscaling, HDR, mouse, file export / load, anti-aliasing, ambient occlusion, sharpening, sharper sprites, and the post-effects and extra lights); those keep their Vita defaults whatever enhanced.json says. Shake for Whammy shown on the Vita, on its motion sensor (off by default) |
 | 2026-11-12 | `0023-vita-settings-menu.patch` (updated) | `gd-game-01/engine/src/input/input.cpp` (and `vita/src/vita_settings.h`) | PS Vita: the No Venue cheat hidden (Performance Mode > Notes Only does the same and loads no stage); Shake for Whammy a little easier (3 m/s² past gravity, was 4) |
+| 2026-11-12 | `0024-vita-button-layout.patch` | `gd-game-01/engine/src/app.cpp`, `gd-game-01/engine/src/ui/select_panels.cpp`, `gd-game-01/engine/src/input/input.cpp` | PS Vita: Enhanced Settings > Controls > Button Layout. Layout 1 (default): D-pad Left, L, R, Circle, Cross, strum on D-pad Up / Down; Layout 2: D-pad Left, D-pad Up, Triangle, Circle, Cross, no strum (a gamepad's frets strum). Inputs customized on the Gamepads screen still take precedence |
 | 2026-11-11 | `0020-vita-async-song-preview.patch` (updated) | `gd-game-01/engine/src/data/iso9660.h`, `gd-game-01/engine/src/data/iso9660.cpp`, `gd-game-01/engine/src/data/vgs.cpp` | PS Vita: `RandomFile::read` uses `sceIoPread` (positional, 4 MB pieces) instead of fseek + fread: ~3x faster disc reads, safe from the preview thread without a lock |
 
 ## New files
@@ -68,6 +69,7 @@ platforms build exactly as upstream.
 | 2026-11-11 | `tools/build-vitagl.sh` | Builds vitaGL from source with the port's build options (linked by `tools/build-vita.sh` when present) |
 | 2026-11-11 | `vita/src/preview_loader.h`, `vita/src/preview_loader.cpp` | Song previews built on a worker thread, used by patch 0020 |
 | 2026-11-12 | `vita/src/vita_settings.h` | The Enhanced Settings the Vita does not show, used by patch 0023 |
+| 2026-11-12 | `vita/src/vita_settings.h` (updated) | Declares `vita::setButtonLayout`, used by patch 0024 |
 | 2026-11-10 | `vita/compat/dlfcn.h` | Stub dynamic-loader header (the Vita has none) |
 | 2026-11-10 | `vita/tests/` | Desktop checks for the shader rewrite and the palette packing |
 | 2026-11-10 | `tools/` | Toolchain setup, desktop and Vita builds, patch stack, shader dump and validation, GPU memory probe, crash dump decoding, movie decode benchmark, hardware build/deploy/run loop (`vita-loop.sh`) |

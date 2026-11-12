@@ -36,4 +36,11 @@ inline bool hiddenSetting(std::string_view key) {
     return false;
 }
 
+// Enhanced Settings > Button Layout: the default frets of the Vita's own
+// buttons (1: D-pad Left, L, R, Circle, Cross, strum on D-pad Up / Down;
+// 2: D-pad Left, D-pad Up, Triangle, Circle, Cross, no strum). Set by App,
+// defined in input/input.cpp (patch 0024). Inputs customized on the
+// Gamepads screen take precedence; its Reset to Defaults goes back to this.
+void setButtonLayout(int layout);
+
 }  // namespace vita
