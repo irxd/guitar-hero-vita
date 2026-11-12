@@ -15,6 +15,7 @@ from PIL import Image, ImageFilter
 
 SS = 2  # supersampling factor
 SEED = 11
+PURPLE = 0.5  # strength of the purple wash over the orange-red bricks (0 = none)
 
 
 def fractal(rng, h, w, base, octaves=5):
@@ -84,6 +85,11 @@ def render(w, h, dim):
     nx, ny = (xx - W / 2) / (W * 0.55), (yy - H * 0.45) / (H * 0.65)
     light = np.exp(-(nx ** 2 + ny ** 2) * 1.4)
     img = img * (0.45 + 0.75 * light)[..., None] + light[..., None] * np.array([26, 12, 4])
+    # Light purple wash over the warm bricks: mix in a purple-tinted copy of the
+    # image's brightness.
+    lum = img @ np.array([0.30, 0.55, 0.15], np.float32)
+    purple = lum[..., None] * np.array([1.0, 0.6, 1.4], np.float32)
+    img = img * (1 - PURPLE) + purple * PURPLE
     vig = np.clip(1 - 0.35 * (nx ** 2 + ny ** 2), 0.2, 1)
     img = img * vig[..., None] * dim
 
