@@ -1,0 +1,25 @@
+diff --git a/gd-game-01/engine/src/script/script.cpp b/gd-game-01/engine/src/script/script.cpp
+index ad65fe4..3281fc0 100644
+--- a/gd-game-01/engine/src/script/script.cpp
++++ b/gd-game-01/engine/src/script/script.cpp
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-12: PS Vita: `mod` wraps negatives into the range (the store and tutorial lists scrolled up from the first entry to index -1).
+ #include "script/script.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -393,7 +394,13 @@ Value arith(const Value& a, const Value& b, char op) {
+     case '-': r = x - y; break;
+     case '*': r = x * y; break;
+     case '/': r = y != 0 ? x / y : 0; break;
++#if defined(__vita__)
++    // PS Vita: wrapped into [0, y): the scripts' list wraps step back with
++    // {mod {+ i -1} n}, and fmod gave -1 (the store showed "_shop_desc", $0).
++    case '%': r = y != 0 ? std::fmod(x, y) : 0; if (r != 0 && (r < 0) != (y < 0)) r += y; break;
++#else
+     case '%': r = y != 0 ? std::fmod(x, y) : 0; break;
++#endif
+     }
+     if (op == '/' && a.type == Value::Type::Int && b.type == Value::Type::Int && b.i != 0 && a.i % b.i == 0)
+         return Value::integer(a.i / b.i);
