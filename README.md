@@ -96,4 +96,3 @@ Details of every hardware run: [docs/port-plan.md](docs/port-plan.md).
 - Changes from upstream: [CHANGES.md](CHANGES.md)
 - Licence: [LICENSE](LICENSE) and [LICENSE-ADDITIONAL-TERMS.md](LICENSE-ADDITIONAL-TERMS.md) (unchanged from upstream)
 - Agent and contributor rules: [CLAUDE.md](CLAUDE.md)
-- LiveArea background photo: "Red curtain stage" by nooooodles on [Unsplash](https://unsplash.com/photos/red-curtain-stage-m3th3rIQ9-w) (Unsplash License)

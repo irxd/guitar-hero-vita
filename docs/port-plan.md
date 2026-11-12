@@ -198,7 +198,7 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
 ### Phase 4: Vita polish and release (1–2 weeks)
 - [ ] Input map, default (user's layout, 2026-11-11, patch 0004): Green = D-pad ←, Red = L, Yellow = R, Blue = ○, Orange = ✕; strum = D-pad up/down; Star Power = Select (+ optional tilt via the motion sensor); whammy = right stick; pause = Start. Optional alternatives: front-touch fret zones, rear-touch strum. All remappable via the GAMEPADS screen. Labelled as a "handheld mode".
 - [ ] FMV: keep it if ≥ 30 fps, otherwise skip it with a log line
-- [x] Our own LiveArea assets (2026-11-12): icon0 and startup "GH / VITA" lettering drawn by the user; bg.png and pic0.png are cropped from an Unsplash stage photo by `tools/make-livearea-art.py` (credited in the README; the first draft used official GH1 art, the second a procedural stage). Packed via `FILE` entries in `vita/CMakeLists.txt`.
+- [x] Our own LiveArea assets (2026-11-12): icon0 and startup "GH / VITA" lettering drawn by the user; bg.png and pic0.png are a procedural purple brick wall from `tools/make-livearea-art.py` (earlier drafts: official GH1 art, removed; a procedural stage; an Unsplash photo). Packed via `FILE` entries in `vita/CMakeLists.txt`.
 - [ ] Credits screen shows the attribution line.
 - [ ] `CHANGES.md`, a VPK build script, GitHub release with source
 - [ ] ~~Offer the `patches/` to the maintainer~~ (not wanted, user 2026-11-12). List on VitaDB: later, the user's call.
