@@ -1,16 +1,17 @@
 diff --git a/gd-game-01/engine/src/input/input.cpp b/gd-game-01/engine/src/input/input.cpp
-index 2c5a30a..4e3b368 100644
+index 2c5a30a..9664604 100644
 --- a/gd-game-01/engine/src/input/input.cpp
 +++ b/gd-game-01/engine/src/input/input.cpp
-@@ -1,5 +1,7 @@
+@@ -1,5 +1,8 @@
  // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
  // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
 +// Modified by irxd on 2026-11-10: PS Vita joypad fret layout (defaults); fret helper buttons in a song.
 +// Modified by irxd on 2026-11-11: PS Vita joypad frets moved to D-pad Left, L, R, Circle, Cross.
++// Modified by irxd on 2026-11-12: PS Vita: a D-pad fret is only its direction outside a song (no select on D-pad Left).
  #include "input/input.h"
  
  #include <algorithm>
-@@ -194,6 +196,20 @@ Input::Bindings Input::defaults(Profile p) {
+@@ -194,6 +197,20 @@ Input::Bindings Input::defaults(Profile p) {
          set(C::Gyro, {btn(SDL_GAMEPAD_BUTTON_BACK)});
          break;
      case Profile::Joypad:  // the doc's XInput table: L2 L1 R1 R2 X, whammy on either stick
@@ -31,7 +32,26 @@ index 2c5a30a..4e3b368 100644
          padCommon({btn(SDL_GAMEPAD_BUTTON_BACK)});
          set(C::Green, {axis(Kind::AxisPos, SDL_GAMEPAD_AXIS_LEFT_TRIGGER)});
          set(C::Red, {btn(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER)});
-@@ -759,9 +775,25 @@ void Input::update(Pad& p, uint64_t ts, std::vector<InputEvent>& out) {
+@@ -747,7 +764,17 @@ void Input::update(Pad& p, uint64_t ts, std::vector<InputEvent>& out) {
+     auto was = p.down;
+     for (size_t c = 0; c < size_t(Control::Count); ++c) {
+         bool now = false;
+-        for (const Source& s : b[c]) now = now || sourceActive(p, s, was[c]);
++        for (const Source& s : b[c]) {
++#if defined(__vita__)
++            // PS Vita: outside a song a D-pad fret (Green on D-pad Left) is
++            // only its direction: the menus take a green fret as select, so
++            // D-pad Left would also confirm (hardware, 2026-11-12).
++            if (!inGame() && c >= size_t(C::Green) && c <= size_t(C::Orange) && s.kind == Kind::Button &&
++                s.index >= SDL_GAMEPAD_BUTTON_DPAD_UP && s.index <= SDL_GAMEPAD_BUTTON_DPAD_RIGHT)
++                continue;
++#endif
++            now = now || sourceActive(p, s, was[c]);
++        }
+         if (Control(c) == C::Whammy && p.whammyAxis > 0.15f) now = true;
+         p.down[c] = now;
+     }
+@@ -759,9 +786,25 @@ void Input::update(Pad& p, uint64_t ts, std::vector<InputEvent>& out) {
      const std::array<bool, 4> help = {p.buttons[SDL_GAMEPAD_BUTTON_DPAD_LEFT], p.buttons[SDL_GAMEPAD_BUTTON_DPAD_RIGHT],
                                        joypad && p.buttons[SDL_GAMEPAD_BUTTON_SOUTH], joypad && p.buttons[SDL_GAMEPAD_BUTTON_EAST]};
      static constexpr Action kHelp[4] = {Action::Left, Action::Right, Action::Confirm, Action::Back};
