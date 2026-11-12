@@ -10,7 +10,8 @@
 //     HDR, mouse, the file Export / Load buttons (a desktop folder picker),
 //     anti-aliasing, ambient occlusion, sharpening, sharper text and sprites;
 //   - full-screen passes or extra draws the 30 FPS budget has no room for
-//     (untested; may come back one by one once measured).
+//     (untested; may come back one by one once measured);
+//   - the No Venue cheat: Notes Only does the same and loads no stage.
 #pragma once
 
 #include <string_view>
@@ -27,6 +28,8 @@ inline bool hiddenSetting(std::string_view key) {
         // untested, likely too slow
         "bloom", "cinematic_color", "color_grade", "film_grain", "chromatic", "star_blur", "bokeh",
         "shadows_all", "more_lights", "light_dust",
+        // a better option exists: Performance Mode > Notes Only (no stage loaded at all)
+        "cheat_no_venue",
     };
     for (std::string_view k : kHidden)
         if (k == key) return true;

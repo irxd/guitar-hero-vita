@@ -40,7 +40,7 @@ index 5d47366..34e83aa 100644
          return def != enhancedDefaults().end() ? def->second : Json();
      }
 diff --git a/gd-game-01/engine/src/input/input.cpp b/gd-game-01/engine/src/input/input.cpp
-index 9664604..87c6180 100644
+index 9664604..f31a694 100644
 --- a/gd-game-01/engine/src/input/input.cpp
 +++ b/gd-game-01/engine/src/input/input.cpp
 @@ -3,6 +3,7 @@
@@ -63,6 +63,20 @@ index 9664604..87c6180 100644
      if (!shakeTried_) {
          shakeTried_ = true;
          if (!SDL_InitSubSystem(SDL_INIT_SENSOR)) {
+@@ -1553,7 +1558,13 @@ void Input::pollShake(uint64_t nowNs, std::vector<InputEvent>& out) {
+             float f = std::strtof(v, nullptr);
+             if (f > 0) return f;
+         }
++#if defined(__vita__)
++        // PS Vita: a little easier than a phone (user, 2026-11-12: the shakes
++        // that registered at 4 measured 4.1-8.8, the softer ones only just).
++        return 3.0f;
++#else
+         return 4.0f;
++#endif
+     }();
+     static const uint64_t kHoldNs = [] {
+         if (const char* v = SDL_getenv("GD01_SHAKE_HOLD_MS")) {
 diff --git a/gd-game-01/engine/src/ui/select_panels.cpp b/gd-game-01/engine/src/ui/select_panels.cpp
 index 2c2c7fb..84f01b8 100644
 --- a/gd-game-01/engine/src/ui/select_panels.cpp
