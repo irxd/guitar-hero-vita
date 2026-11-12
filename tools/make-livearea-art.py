@@ -88,7 +88,7 @@ def render(w, h, dim):
     # Light purple wash over the warm bricks: mix in a purple-tinted copy of the
     # image's brightness.
     lum = img @ np.array([0.30, 0.55, 0.15], np.float32)
-    purple = lum[..., None] * np.array([0.9, 0.6, 1.55], np.float32)
+    purple = lum[..., None] * np.array([0.8, 0.6, 1.75], np.float32)
     img = img * (1 - PURPLE) + purple * PURPLE
     vig = np.clip(1 - 0.35 * (nx ** 2 + ny ** 2), 0.2, 1)
     img = img * vig[..., None] * dim
@@ -100,7 +100,9 @@ def render(w, h, dim):
 def save_indexed(img, path):
     # The Vita's LiveArea wants 8-bit palette PNGs. Build the palette first, then map
     # with dithering; quantize() alone does not dither and leaves bands.
-    pal = img.quantize(colors=256, method=Image.Quantize.MEDIANCUT)
+    # MAXCOVERAGE: MEDIANCUT left white logo entries that the dither scattered as
+    # white dots over the bright middle of pic0.
+    pal = img.quantize(colors=256, method=Image.Quantize.MAXCOVERAGE)
     img.quantize(palette=pal, dither=Image.Dither.FLOYDSTEINBERG).save(path, optimize=True)
     print("wrote", path)
 
