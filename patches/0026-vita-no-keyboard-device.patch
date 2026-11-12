@@ -1,0 +1,42 @@
+diff --git a/gd-game-01/engine/src/input/input.cpp b/gd-game-01/engine/src/input/input.cpp
+index d4adc80..2e774f4 100644
+--- a/gd-game-01/engine/src/input/input.cpp
++++ b/gd-game-01/engine/src/input/input.cpp
+@@ -5,6 +5,7 @@
+ // Modified by irxd on 2026-11-12: PS Vita: a D-pad fret is only its direction outside a song (no select on D-pad Left).
+ // Modified by irxd on 2026-11-12: PS Vita: Shake for Whammy on the motion sensor.
+ // Modified by irxd on 2026-11-12: PS Vita: Button Layout 2 (D-pad Left, D-pad Up, Triangle, Circle, Cross; optional strum on L / R).
++// Modified by irxd on 2026-11-12: PS Vita: no keyboard device (Gamepads screen, players).
+ #include "input/input.h"
+ 
+ #include <algorithm>
+@@ -320,6 +321,9 @@ void Input::emit(std::vector<InputEvent>& out, Action a, bool down, uint64_t ts,
+ 
+ // The keyboard's chosen player, else the lowest one no pad holds (none with two pads).
+ int Input::keyboardSlot() const {
++#if defined(__vita__)
++    return -1;  // PS Vita: no keyboard (its entry is hidden, see devices())
++#endif
+     if (auto it = players_.find("keyboard"); it != players_.end()) return playerEnabled(it->second) ? it->second : -1;
+     for (int s = 0; s < kPlayers; ++s) {
+         if (!playerEnabled(s)) continue;
+@@ -337,6 +341,9 @@ bool Input::slotTaken(int slot, const Pad* except) const {
+         if (&p != except && p.slot == slot) return true;
+     for (const auto& [id, m] : midiDevs_)
+         if (m.slot == slot) return true;
++#if defined(__vita__)
++    return false;  // PS Vita: no keyboard holds a player
++#endif
+     auto kb = players_.find("keyboard");
+     return kb != players_.end() && kb->second == slot;
+ }
+@@ -953,7 +960,9 @@ std::string Input::guidOf(const std::string& id) const {
+ 
+ std::vector<Input::Device> Input::devices() const {
+     std::vector<Device> d;
++#if !defined(__vita__)  // PS Vita: no keyboard; its entry only took player 2 and swapped places with the pad
+     d.push_back({"keyboard", "Keyboard", profileName(Profile::Keyboard), keyboardSlot()});
++#endif
+     if (touch_) d.push_back({"touch", "Touch Screen", "Touch: taps, lanes, swipes, on-screen buttons", 0});
+     std::vector<SDL_JoystickID> ids;
+     for (const auto& [id, p] : pads_) ids.push_back(id);
