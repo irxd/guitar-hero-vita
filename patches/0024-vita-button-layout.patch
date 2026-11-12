@@ -130,7 +130,7 @@ index f31a694..d4adc80 100644
              now = now || sourceActive(p, s, was[c]);
          }
 diff --git a/gd-game-01/engine/src/ui/select_panels.cpp b/gd-game-01/engine/src/ui/select_panels.cpp
-index 84f01b8..7962e1b 100644
+index 84f01b8..588876d 100644
 --- a/gd-game-01/engine/src/ui/select_panels.cpp
 +++ b/gd-game-01/engine/src/ui/select_panels.cpp
 @@ -4,6 +4,7 @@
@@ -141,18 +141,17 @@ index 84f01b8..7962e1b 100644
  #include "ui/select_panels.h"
  
  #include <SDL3/SDL.h>
-@@ -1086,6 +1087,10 @@ private:
+@@ -1086,6 +1087,9 @@ private:
               "Shake the phone during a song to use the whammy bar: keep shaking to hold it, stop to let go. Whammy bends the "
               "note and fills Star Power faster on a Star Power note. A real whammy bar keeps working. Android only."},
  #elif defined(__vita__)
 +            {Kind::Choice, "button_layout", "Button Layout", true,
-+             "The Vita's buttons for the frets. Strumming is optional: a fret press plays the note. Buttons changed "
-+             "in GAMEPADS > Customize inputs take precedence; Reset to Defaults there goes back to this layout.",
++             "Strum is optional. Buttons changed in GAMEPADS override this layout.",
 +             {{"1", "Layout 1"}, {"2", "Layout 2"}}},
              {Kind::Check, "shake_whammy", "Shake for Whammy", true,
               "Shake the Vita during a song to use the whammy bar: keep shaking to hold it, stop to let go. Whammy bends "
               "the note and fills Star Power faster on a Star Power note. The right stick keeps working."},
-@@ -1381,7 +1386,14 @@ private:
+@@ -1381,7 +1385,14 @@ private:
      }
      // A choice of exactly two values is shown and used as a check box: ticked
      // is the second value (e.g. Hammer-ons & Pull-offs: Original / Forgiving).
@@ -167,7 +166,7 @@ index 84f01b8..7962e1b 100644
      static int optionIndex(const Item& it, const std::string& v) {
          for (size_t k = 0; k < it.options.size(); ++k)
              if (v == it.options[k].value) return int(k);
-@@ -1491,6 +1503,91 @@ private:
+@@ -1491,6 +1502,91 @@ private:
          if (up) triangle(x - 9, y + 5, x + 9, y + 5, x, y - 5, kDim);
          else triangle(x - 9, y - 5, x + 9, y - 5, x, y + 5, kDim);
      }
@@ -259,7 +258,7 @@ index 84f01b8..7962e1b 100644
      void warning(float x, float cy) {  // a yellow warning sign: not built yet
          triangle(x, cy + 9, x + 20, cy + 9, x + 10, cy - 9, kWarn);
          text("impactor.font", "!", x + 10, cy + 1, 15, {0, 0, 0, 1}, 0x22);
-@@ -1591,6 +1688,10 @@ private:
+@@ -1591,6 +1687,10 @@ private:
          }
          float height = pad + 46 + float(lines.size()) * lineH + (!it.ready || locked || calib ? 42 : 0) +
                         float(status.size() > 1 ? status.size() - 1 : 0) * 26 + pad;
@@ -270,7 +269,7 @@ index 84f01b8..7962e1b 100644
          // Bottom-aligned with the options box, leaving the backdrop's microphone in view above.
          const float top = kBoxY1 - height;
          float y = top + pad;
-@@ -1600,6 +1701,9 @@ private:
+@@ -1600,6 +1700,9 @@ private:
          text("impactor.font", it.name, x0 + pad, y + 2, 30, kFocused, 0x11);
          y += 46;
          for (const std::string& l : lines) text("impactor.font", l, x0 + pad, y, bodyH, kNormal, 0x11), y += lineH;
