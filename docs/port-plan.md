@@ -311,3 +311,4 @@ Alternatives:
 - 2026-11-12: D-pad Left no longer also selects in the menus (patch 0004).
 - 2026-11-12: Store lists wrap correctly when scrolling up from the first item (script `mod`, patch 0022). Checked on hardware by the user, with the D-pad Left fix.
 - 2026-11-12: Enhanced Settings trimmed for the Vita (~50 rows to ~20); Shake for Whammy on the motion sensor (patch 0023).
+- 2026-11-12: Upstream issue posted as irxd (the user asked): https://github.com/mbracali/prj-gd-engine/issues/100, offering three general fixes (script `mod` wrap, held menu direction after a rebind, GPU objects freed with their SceneRenderer). Prepared on a local branch `fix/gd-game-01/general-fixes` (worktree `/root/gde-pr` in WSL, from `develop` b3577a1); `--selftest` all charts fully hit. A PR only if the owner wants it; no fork yet.
