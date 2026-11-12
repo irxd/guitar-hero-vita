@@ -63,6 +63,20 @@ Options → Enhanced Settings → Performance & Graphics:
   against drawing them all in 3D, and the crowd looks just as full.
 - **Notes Only** loads no stage, band or crowd: songs also start faster and use less memory.
 
+Particles FX (sparks, smoke, the highway's hit effects), same song at 60 FPS with the crowd
+on, to show the cost (2026-11-12):
+
+| Particles FX | Average FPS | Time a frame |
+|---|---|---|
+| None | 48 FPS | 19.0 ms |
+| Original (default) | 44 FPS | 22.2 ms |
+| 2x | 44 FPS | 22.2 ms |
+
+- Original costs about 3 ms a frame. At 30 FPS that still fits (a frame has 33 ms), so the
+  30 FPS results above already include it; at 60 FPS, None gives ~4 FPS more.
+- 2x looks and costs the same as Original in this song: each effect has its own maximum
+  number of particles, and this stage's effects already reach it.
+
 Loading and memory:
 
 | | Result |
