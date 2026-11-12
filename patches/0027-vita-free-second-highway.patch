@@ -1,0 +1,24 @@
+diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
+index 1d0ecc0..a21057c 100644
+--- a/gd-game-01/engine/src/app.cpp
++++ b/gd-game-01/engine/src/app.cpp
+@@ -10,6 +10,7 @@
+ // Modified by irxd on 2026-11-11: PS Vita: song previews read only their window of the .vgs, on a worker thread (songPreview).
+ // Modified by irxd on 2026-11-12: PS Vita: settings the Vita does not show keep their defaults (enhanced); Shake for Whammy off by default.
+ // Modified by irxd on 2026-11-12: PS Vita: Enhanced Settings Button Layout (1 or 2).
++// Modified by irxd on 2026-11-12: PS Vita: the second highway freed before the renderer shuts down (run).
+ #include "app.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -2943,6 +2944,11 @@ int App::run(int* restartSlot) {
+ 
+     mixer_.close();
+     input_.close();
++#if defined(__vita__)
++    // PS Vita: track2_ is declared before renderer_, so it would outlive it; its
++    // scene frees its meshes (patch 0021) while renderer_ still exists.
++    track2_.reset();
++#endif
+     renderer_.shutdown();
+     SDL_DestroyWindow(window_);
+     SDL_Quit();
