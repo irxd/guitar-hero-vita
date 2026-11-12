@@ -118,7 +118,7 @@ index f31a694..f49b14b 100644
                                                        defaults(Profile::RockBand), defaults(Profile::Joypad),
                                                        defaults(Profile::Keyboard), defaults(Profile::Midi)};
 diff --git a/gd-game-01/engine/src/ui/select_panels.cpp b/gd-game-01/engine/src/ui/select_panels.cpp
-index 84f01b8..47e6c18 100644
+index 84f01b8..5381919 100644
 --- a/gd-game-01/engine/src/ui/select_panels.cpp
 +++ b/gd-game-01/engine/src/ui/select_panels.cpp
 @@ -4,6 +4,7 @@
@@ -129,20 +129,18 @@ index 84f01b8..47e6c18 100644
  #include "ui/select_panels.h"
  
  #include <SDL3/SDL.h>
-@@ -1086,6 +1087,12 @@ private:
+@@ -1086,6 +1087,10 @@ private:
               "Shake the phone during a song to use the whammy bar: keep shaking to hold it, stop to let go. Whammy bends the "
               "note and fills Star Power faster on a Star Power note. A real whammy bar keeps working. Android only."},
  #elif defined(__vita__)
 +            {Kind::Choice, "button_layout", "Button Layout", true,
-+             "The Vita's buttons for the frets, green to orange. Layout 1: D-pad Left, L, R, Circle, Cross; strum "
-+             "on D-pad Up / Down. Layout 2: D-pad Left, D-pad Up, Triangle, Circle, Cross. Strumming is optional: "
-+             "a fret press plays the note. Buttons changed in GAMEPADS > Customize inputs take precedence; Reset to "
-+             "Defaults there goes back to this layout.",
++             "The Vita's buttons for the frets. Strumming is optional: a fret press plays the note. Buttons changed "
++             "in GAMEPADS > Customize inputs take precedence; Reset to Defaults there goes back to this layout.",
 +             {{"1", "Layout 1"}, {"2", "Layout 2"}}},
              {Kind::Check, "shake_whammy", "Shake for Whammy", true,
               "Shake the Vita during a song to use the whammy bar: keep shaking to hold it, stop to let go. Whammy bends "
               "the note and fills Star Power faster on a Star Power note. The right stick keeps working."},
-@@ -1381,7 +1388,14 @@ private:
+@@ -1381,7 +1386,14 @@ private:
      }
      // A choice of exactly two values is shown and used as a check box: ticked
      // is the second value (e.g. Hammer-ons & Pull-offs: Original / Forgiving).
@@ -157,3 +155,116 @@ index 84f01b8..47e6c18 100644
      static int optionIndex(const Item& it, const std::string& v) {
          for (size_t k = 0; k < it.options.size(); ++k)
              if (v == it.options[k].value) return int(k);
+@@ -1491,6 +1503,91 @@ private:
+         if (up) triangle(x - 9, y + 5, x + 9, y + 5, x, y - 5, kDim);
+         else triangle(x - 9, y - 5, x + 9, y - 5, x, y + 5, kDim);
+     }
++#if defined(__vita__)
++    // PS Vita: Button Layout's help draws both layouts, each fret's colour
++    // then its button as a drawn icon (the menu fonts have no button glyphs).
++    static constexpr float kVitaLayoutsH = 4 * 36 + 16;
++    enum class VitaButton { DpadLeft, DpadUp, DpadDown, L, R, Triangle, Circle, Cross };
++    void disc(float cx, float cy, float r, const std::array<float, 4>& c) {
++        constexpr int n = 16;
++        for (int k = 0; k < n; ++k) {
++            const float a0 = 6.2831853f * k / n, a1 = 6.2831853f * (k + 1) / n;
++            triangle(cx, cy, cx + r * std::cos(a0), cy + r * std::sin(a0), cx + r * std::cos(a1), cy + r * std::sin(a1), c);
++        }
++    }
++    void vitaButtonIcon(VitaButton b, float cx, float cy, const std::array<float, 4>& c) {
++        const float s = 14;  // half the icon's size
++        const bool shoulder = b == VitaButton::L || b == VitaButton::R;
++        const bool dpad = b == VitaButton::DpadLeft || b == VitaButton::DpadUp || b == VitaButton::DpadDown;
++        if (shoulder) {  // a shoulder tab with its letter
++            quad(cx - s - 4, cy - s + 3, cx + s + 4, cy + s - 3, {1, 1, 1, 0.14f});
++            frame(cx - s - 4, cy - s + 3, cx + s + 4, cy + s - 3, 1.5f, c);
++            text("impactor.font", b == VitaButton::L ? "L" : "R", cx, cy + 1, 20, c, 0x22);
++            return;
++        }
++        if (dpad) {  // a D-pad cross, the pressed arm lit
++            const float w = 5;
++            quad(cx - w, cy - s, cx + w, cy + s, {1, 1, 1, 0.18f});
++            quad(cx - s, cy - w, cx + s, cy + w, {1, 1, 1, 0.18f});
++            if (b == VitaButton::DpadLeft) triangle(cx - s, cy, cx - 3, cy - 7, cx - 3, cy + 7, c);
++            if (b == VitaButton::DpadUp) triangle(cx, cy - s, cx - 7, cy - 3, cx + 7, cy - 3, c);
++            if (b == VitaButton::DpadDown) triangle(cx, cy + s, cx - 7, cy + 3, cx + 7, cy + 3, c);
++            return;
++        }
++        disc(cx, cy, s, {1, 1, 1, 0.14f});  // a face button: its symbol drawn in outline
++        const float r = 7.5f, t = 2.2f;
++        switch (b) {
++        case VitaButton::Circle: {
++            constexpr int n = 14;
++            for (int k = 0; k < n; ++k) {
++                const float a0 = 6.2831853f * k / n, a1 = 6.2831853f * (k + 1) / n;
++                line(cx + r * std::cos(a0), cy + r * std::sin(a0), cx + r * std::cos(a1), cy + r * std::sin(a1), t, c);
++            }
++            break;
++        }
++        case VitaButton::Cross:
++            line(cx - r, cy - r, cx + r, cy + r, t, c), line(cx - r, cy + r, cx + r, cy - r, t, c);
++            break;
++        case VitaButton::Triangle:
++            line(cx, cy - r, cx + r, cy + r * 0.75f, t, c), line(cx + r, cy + r * 0.75f, cx - r, cy + r * 0.75f, t, c);
++            line(cx - r, cy + r * 0.75f, cx, cy - r, t, c);
++            break;
++        default: break;
++        }
++    }
++    void drawVitaLayouts(float x0, float x1, float y) {
++        using B = VitaButton;
++        static const std::array<float, 4> kFret[5] = {
++            {0.15f, 0.8f, 0.25f, 1}, {0.9f, 0.2f, 0.2f, 1}, {0.95f, 0.85f, 0.15f, 1}, {0.2f, 0.45f, 0.95f, 1}, {1, 0.55f, 0.1f, 1}};
++        struct Layout { const char* value; const char* name; B frets[5]; std::vector<B> strum; };
++        static const Layout kLayouts[2] = {
++            {"1", "Layout 1", {B::DpadLeft, B::L, B::R, B::Circle, B::Cross}, {B::DpadUp, B::DpadDown}},
++            {"2", "Layout 2", {B::DpadLeft, B::DpadUp, B::Triangle, B::Circle, B::Cross}, {}},
++        };
++        const std::string now = host_.enhancedValue("button_layout");
++        for (const Layout& l : kLayouts) {
++            const bool on = now == l.value;
++            const auto c = on ? kFocused : kNormal;
++            if (on) quad(x0 - 8, y - 4, x1 + 8, y + 68, {1, 0.86f, 0.2f, 0.10f});
++            text("impactor.font", l.name, x0, y + 13, 20, c, 0x21);
++            // Strum, right-aligned on the name's line.
++            if (l.strum.empty()) {
++                text("impactor.font", "Strum: none needed", x1, y + 13, 17, kDim, 0x24);
++            } else {
++                float sx = x1 - 14;
++                for (auto it = l.strum.rbegin(); it != l.strum.rend(); ++it) vitaButtonIcon(*it, sx, y + 13, c), sx -= 34;
++                text("impactor.font", "Strum:", sx + 6, y + 13, 17, kDim, 0x24);
++            }
++            const float cy = y + 48, step = (x1 - x0) / 5;
++            for (int k = 0; k < 5; ++k) {
++                const float fx = x0 + step * k;
++                disc(fx + 9, cy, 8, kFret[k]);
++                vitaButtonIcon(l.frets[k], fx + 42, cy, c);
++            }
++            y += 2 * 36 + 8;
++        }
++    }
++#endif
+     void warning(float x, float cy) {  // a yellow warning sign: not built yet
+         triangle(x, cy + 9, x + 20, cy + 9, x + 10, cy - 9, kWarn);
+         text("impactor.font", "!", x + 10, cy + 1, 15, {0, 0, 0, 1}, 0x22);
+@@ -1591,6 +1688,10 @@ private:
+         }
+         float height = pad + 46 + float(lines.size()) * lineH + (!it.ready || locked || calib ? 42 : 0) +
+                        float(status.size() > 1 ? status.size() - 1 : 0) * 26 + pad;
++#if defined(__vita__)
++        const bool layouts = std::string(it.key) == "button_layout";
++        if (layouts) height += kVitaLayoutsH;
++#endif
+         // Bottom-aligned with the options box, leaving the backdrop's microphone in view above.
+         const float top = kBoxY1 - height;
+         float y = top + pad;
+@@ -1600,6 +1701,9 @@ private:
+         text("impactor.font", it.name, x0 + pad, y + 2, 30, kFocused, 0x11);
+         y += 46;
+         for (const std::string& l : lines) text("impactor.font", l, x0 + pad, y, bodyH, kNormal, 0x11), y += lineH;
++#if defined(__vita__)
++        if (layouts) drawVitaLayouts(x0 + pad, x1 - pad, y + 8);
++#endif
+         if (std::string(it.key) == "ai_upscaling" || std::string(it.key) == "hdr") {
+             y += 6;
+             for (const std::string& l : status) text("impactor.font", l, x0 + pad, y + 13, 19, kOn, 0x21), y += 26;
