@@ -1,0 +1,119 @@
+diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
+index 5d47366..34e83aa 100644
+--- a/gd-game-01/engine/src/app.cpp
++++ b/gd-game-01/engine/src/app.cpp
+@@ -8,6 +8,7 @@
+ // Modified by irxd on 2026-11-11: PS Vita: Max FPS 30 (default, steady) or 60, paced by vitaGL's vblank interval.
+ // Modified by irxd on 2026-11-11: PS Vita: Performance Mode Notes Only (no venue) and the Crowd setting.
+ // Modified by irxd on 2026-11-11: PS Vita: song previews read only their window of the .vgs, on a worker thread (songPreview).
++// Modified by irxd on 2026-11-12: PS Vita: settings the Vita does not show keep their defaults (enhanced); Shake for Whammy off by default.
+ #include "app.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -55,6 +56,7 @@
+ #include "movie_worker.h"  // the Vita port's vita/src: movies decoded on another core
+ #include "preview_loader.h"  // the Vita port's vita/src: song previews built on another core
+ #include "vita_profile.h"  // the Vita port's vita/src: frame phase timing
++#include "vita_settings.h"  // the Vita port's vita/src: settings the Vita does not show
+ #define GD01_VITA_PHASE(name) vita::profilePhase(name)
+ #else
+ #define GD01_VITA_PHASE(name) ((void)0)
+@@ -176,7 +178,7 @@ std::map<std::string, Json> profileValues(bool deck) {
+     // 2026-11-11), so 30 is steady where 60 would swing between 35 and 48.
+     // Crowd on: at most 8 3D members (the widest shots drew ~23, 9 ms a frame).
+     for (auto& [k, v] : std::map<std::string, Json>{{"screen_mode", t("fullscreen")}, {"max_fps", t("30")}, {"internal_res", t("448")},
+-                                                    {"bokeh", t("none")}, {"crowd", b(true)}})
++                                                    {"bokeh", t("none")}, {"crowd", b(true)}, {"shake_whammy", b(false)}})
+         d[k] = v;
+ #else
+ #if defined(GD01_STEAM_DECK)
+@@ -501,6 +503,11 @@ private:
+         if (key == "touch") return Json::boolean(true);  // a phone may have no other control
+ #endif
+         auto def = enhancedDefaults().find(key);
++#if defined(__vita__)
++        // PS Vita: a setting with no menu row keeps its Vita default, even if
++        // enhanced.json (an older file or one edited by hand) says otherwise.
++        if (vita::hiddenSetting(key)) return def != enhancedDefaults().end() ? def->second : Json();
++#endif
+         if (enhanced_.has(key)) return enhanced_[key];
+         return def != enhancedDefaults().end() ? def->second : Json();
+     }
+diff --git a/gd-game-01/engine/src/input/input.cpp b/gd-game-01/engine/src/input/input.cpp
+index 9664604..87c6180 100644
+--- a/gd-game-01/engine/src/input/input.cpp
++++ b/gd-game-01/engine/src/input/input.cpp
+@@ -3,6 +3,7 @@
+ // Modified by irxd on 2026-11-10: PS Vita joypad fret layout (defaults); fret helper buttons in a song.
+ // Modified by irxd on 2026-11-11: PS Vita joypad frets moved to D-pad Left, L, R, Circle, Cross.
+ // Modified by irxd on 2026-11-12: PS Vita: a D-pad fret is only its direction outside a song (no select on D-pad Left).
++// Modified by irxd on 2026-11-12: PS Vita: Shake for Whammy on the motion sensor.
+ #include "input/input.h"
+ 
+ #include <algorithm>
+@@ -1507,7 +1508,11 @@ void Input::pollShake(uint64_t nowNs, std::vector<InputEvent>& out) {
+     }
+     const char* platform = SDL_GetPlatform();
+     const bool force = SDL_getenv("GD01_SHAKE_FORCE") != nullptr;
++#if defined(__vita__)
++    (void)platform, (void)force;  // PS Vita: its motion sensor (SDL's Vita sensor driver, sceMotion)
++#else
+     if (!force && (!platform || std::string(platform) != "Android")) return;
++#endif
+     if (!shakeTried_) {
+         shakeTried_ = true;
+         if (!SDL_InitSubSystem(SDL_INIT_SENSOR)) {
+diff --git a/gd-game-01/engine/src/ui/select_panels.cpp b/gd-game-01/engine/src/ui/select_panels.cpp
+index 2c2c7fb..84f01b8 100644
+--- a/gd-game-01/engine/src/ui/select_panels.cpp
++++ b/gd-game-01/engine/src/ui/select_panels.cpp
+@@ -3,6 +3,7 @@
+ // Modified by irxd on 2026-11-10: PS Vita: character preview cache of 2 models (schedule).
+ // Modified by irxd on 2026-11-11: PS Vita: Max FPS 30 (default, steady) or 60, paced by vitaGL's vblank interval.
+ // Modified by irxd on 2026-11-11: PS Vita: Performance Mode (30 FPS, 60 FPS, Notes Only) and the Crowd setting.
++// Modified by irxd on 2026-11-12: PS Vita: Enhanced Settings without the settings the Vita cannot use; Shake for Whammy shown.
+ #include "ui/select_panels.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -17,6 +18,9 @@
+ #include "render/scene_renderer.h"
+ #include "scene/character.h"
+ #include "ui/panel.h"
++#if defined(__vita__)
++#include "vita_settings.h"  // the Vita port's vita/src: settings the Vita does not show
++#endif
+ 
+ namespace {
+ 
+@@ -1081,6 +1085,10 @@ private:
+             {Kind::Check, "shake_whammy", "Shake for Whammy", true,
+              "Shake the phone during a song to use the whammy bar: keep shaking to hold it, stop to let go. Whammy bends the "
+              "note and fills Star Power faster on a Star Power note. A real whammy bar keeps working. Android only."},
++#elif defined(__vita__)
++            {Kind::Check, "shake_whammy", "Shake for Whammy", true,
++             "Shake the Vita during a song to use the whammy bar: keep shaking to hold it, stop to let go. Whammy bends "
++             "the note and fills Star Power faster on a Star Power note. The right stick keeps working."},
+ #endif
+             {Kind::Check, "touch", "Enable Touch Controls", true,
+              "Play on a touch screen; also shows the on-screen buttons. In the menus a tap is a click. In a song, "
+@@ -1265,6 +1273,20 @@ private:
+             {Kind::Check, "cheat_skull_crowd", "Skull Head Crowd", true,
+              "The original cheat: everyone in the crowd has a skull for a head. Cannot be on with Monkey Head Crowd."},
+         };
++#if defined(__vita__)
++        // PS Vita: without the settings it cannot use (vita_settings.h); a
++        // separator left first or doubled (the emptied MODES) goes too.
++        static const std::vector<Item> vita = [] {
++            std::vector<Item> v;
++            for (const Item& it : k) {
++                if (vita::hiddenSetting(it.key)) continue;
++                if (it.kind == Kind::Separator && (v.empty() || v.back().kind == Kind::Separator)) continue;
++                v.push_back(it);
++            }
++            return v;
++        }();
++        return vita;
++#endif
+         return k;
+     }
+ 
