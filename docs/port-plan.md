@@ -203,7 +203,7 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
   2. **Auto-strum assist (maybe, after 1):** while a button is held, notes on the held frets are hit at their exact time. Not fixed-rate rapid fire: GH1 penalises strums with no note, so that would break the combo. Touches gameplay code; label it as an assist, off by default.
   3. Front-screen swipe strum: skipped (thumbs are on the buttons).
   Related idea from the user: Star Power on a rear tap.
-- [x] Our own LiveArea assets (2026-11-12): icon0 and startup "GH / VITA" lettering drawn by the user; bg.png and pic0.png are a procedural orange-red brick wall (pic0 with the icon lettering bottom right) from `tools/make-livearea-art.py` (earlier drafts: official GH1 art, removed; a procedural stage; an Unsplash photo). Packed via `FILE` entries in `vita/CMakeLists.txt`.
+- [x] Our own LiveArea assets (2026-11-12): icon0 and startup "GH / VITA" lettering drawn by the user; bg.png and pic0.png are a procedural brick wall, orange-red under a blue-purple wash (pic0 with the icon lettering bottom right) from `tools/make-livearea-art.py` (earlier drafts: official GH1 art, removed; a procedural stage; an Unsplash photo). Packed via `FILE` entries in `vita/CMakeLists.txt`.
 - [ ] Credits screen shows the attribution line.
 - [ ] `CHANGES.md`, a VPK build script, GitHub release with source
 - [ ] ~~Offer the `patches/` to the maintainer~~ (not wanted, user 2026-11-12). List on VitaDB: later, the user's call.
