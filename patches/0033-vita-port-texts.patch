@@ -23,7 +23,7 @@ index fc11207..3200d16 100644
  
  void App::drawNeedData() {
 diff --git a/gd-game-01/engine/src/ui/pc_strings.cpp b/gd-game-01/engine/src/ui/pc_strings.cpp
-index ae498e8..d0c35fc 100644
+index ae498e8..b3a3169 100644
 --- a/gd-game-01/engine/src/ui/pc_strings.cpp
 +++ b/gd-game-01/engine/src/ui/pc_strings.cpp
 @@ -1,5 +1,6 @@
@@ -54,10 +54,10 @@ index ae498e8..d0c35fc 100644
 +    {"bootup_nocard", "No data device detected in the system. GH Vita uses an Autosave feature. Do you want to start the game without saving?"},
 +    {"bootup_caution_nodata", "Caution! No save data found. Continue without saving?"},
 +    {"bootup_save_card_removed", "Caution! No save data found. Continue without saving?"},
-+    {"loading_tip30", "GH Vita: Thanks for GD-Engine Devs who makes this port possible"},
-+    {"loading_tip31", "GH Vita: I have a band once, after recorded 1 song and it's gone ..."},
-+    {"loading_tip32", "GH Vita: This port is my first port project, be nice... or not"},
-+    {"loading_tip33", "GH Vita: If you play this while procrastinating doing something, please stop"},
++    {"loading_tip30", "GH Vita: Thanks to the GD-Engine devs who made this port possible"},
++    {"loading_tip31", "GH Vita: I had a band once. We recorded one song, then it was gone..."},
++    {"loading_tip32", "GH Vita: This is my first port project, so be nice... or not"},
++    {"loading_tip33", "GH Vita: If you're playing this to procrastinate on something, please stop"},
 +};
 +#endif
 +
