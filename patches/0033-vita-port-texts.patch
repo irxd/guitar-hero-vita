@@ -1,0 +1,84 @@
+diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
+index fc11207..3200d16 100644
+--- a/gd-game-01/engine/src/app.cpp
++++ b/gd-game-01/engine/src/app.cpp
+@@ -13,6 +13,7 @@
+ // Modified by irxd on 2026-11-12: PS Vita: the second highway freed before the renderer shuts down (run).
+ // Modified by irxd on 2026-11-12: PS Vita: at 60 FPS 4 3D crowd members (8 at 30) and the cut-outs refreshed a third a frame.
+ // Modified by irxd on 2026-11-13: PS Vita: movies stretched to the full screen (movieFrame).
++// Modified by irxd on 2026-11-13: PS Vita: the first screen's fallback name reads GH Vita (drawLogo).
+ #include "app.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -2378,7 +2379,11 @@ void App::drawLogo() {
+         logoTexture_ = appIconImage(icon) ? renderer_.createTexture(icon) : 0;
+     }
+     if (logoTexture_ > 0) renderer_.image(logoTexture_, kScreenW / 2 - 100, 70, 200, 200, {255, 255, 255, 255}, Blend::Alpha);
++#if defined(__vita__)
++    else renderer_.textCentered(kScreenW / 2, 240, 3, kAccent, "GH Vita");  // PS Vita: the port's name
++#else
+     else renderer_.textCentered(kScreenW / 2, 240, 3, kAccent, "GD-Engine");
++#endif
+ }
+ 
+ void App::drawNeedData() {
+diff --git a/gd-game-01/engine/src/ui/pc_strings.cpp b/gd-game-01/engine/src/ui/pc_strings.cpp
+index ae498e8..d0c35fc 100644
+--- a/gd-game-01/engine/src/ui/pc_strings.cpp
++++ b/gd-game-01/engine/src/ui/pc_strings.cpp
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-13: PS Vita: the port's own save messages and loading tips (kVitaStrings).
+ #include "ui/pc_strings.h"
+ 
+ namespace {
+@@ -78,9 +79,37 @@ const char* const kPcStrings[][2] = {
+      "Geovane, Caio, Joao, Gabriel...\nYOU GUYS ROCK! (Don't block me)"},
+ };
+ 
++#if defined(__vita__)
++// PS Vita: the port's wording for the messages above that name GD-Engine, and
++// its own four loading tips in place of the GD-Engine developers' six.
++const char* const kVitaStrings[][2] = {
++    {"load_success", "Data loaded successfully."},
++    {"bootup_create_save_check", "No data was present on the system. GH Vita uses an Autosave feature. Can we create a new save file now?"},
++    {"bootup_create_save", "Creating save file. Do not shut down or restart the system."},
++    {"bootup_create_success", "Data created successfully! Let's rock!"},
++    {"bootup_caution", "Caution! GH Vita uses an Autosave feature.\nWe could not find a safe way to save files, continue without saving?"},
++    {"mc_save_confirm", "WARNING: Saving will overwrite any existing save data. Are you sure you want to save?"},
++    {"mc_nodata_error", "No data found. Do you want to create and try loading again?"},
++    {"bootup_replace_save_check",
++     "SAVE ERROR: Save data already exists and we are conflicting. Select REPLACE to create a brand new save file, or LOAD to use that save data."},
++    {"file_exists_error", "SAVE ERROR: Data already exists. Overwrite previous data?"},
++    {"bootup_nocard", "No data device detected in the system. GH Vita uses an Autosave feature. Do you want to start the game without saving?"},
++    {"bootup_caution_nodata", "Caution! No save data found. Continue without saving?"},
++    {"bootup_save_card_removed", "Caution! No save data found. Continue without saving?"},
++    {"loading_tip30", "GH Vita: Thanks for GD-Engine Devs who makes this port possible"},
++    {"loading_tip31", "GH Vita: I have a band once, after recorded 1 song and it's gone ..."},
++    {"loading_tip32", "GH Vita: This port is my first port project, be nice... or not"},
++    {"loading_tip33", "GH Vita: If you play this while procrastinating doing something, please stop"},
++};
++#endif
++
+ }  // namespace
+ 
++#if defined(__vita__)
++const char* const kPcLoadingTips[] = {"loading_tip30", "loading_tip31", "loading_tip32", "loading_tip33"};
++#else
+ const char* const kPcLoadingTips[] = {"loading_tip30", "loading_tip31", "loading_tip32", "loading_tip33", "loading_tip34", "loading_tip35"};
++#endif
+ const int kPcLoadingTipCount = int(sizeof kPcLoadingTips / sizeof kPcLoadingTips[0]);
+ 
+ void applyPcStrings(std::map<std::string, std::string>& strings) {
+@@ -88,4 +117,10 @@ void applyPcStrings(std::map<std::string, std::string>& strings) {
+         strings[token] = text;
+         if (std::string ps2 = std::string(token) + "_ps2"; strings.count(ps2)) strings[ps2] = text;
+     }
++#if defined(__vita__)
++    for (const auto& [token, text] : kVitaStrings) {
++        strings[token] = text;
++        if (std::string ps2 = std::string(token) + "_ps2"; strings.count(ps2)) strings[ps2] = text;
++    }
++#endif
+ }

@@ -63,6 +63,7 @@ platforms build exactly as upstream.
 | 2026-11-13 | `0030-vita-splash-notice.patch` | `gd-game-01/engine/src/ui/panel.cpp` | PS Vita: the start screen's first three notice lines become one line, "GH Vita, based on GD-Engine"; the copyright and patent lines stay. The attribution line stays on the credits screen |
 | 2026-11-13 | `0031-vita-fast-movie-decode.patch` | `gd-game-01/engine/src/video/mpeg2.cpp` | PS Vita: movie blocks go through an integer inverse DCT written straight to the picture, and the RGBA conversion uses 16-bit fixed point (`vita/src/mpeg2_neon.cpp`). Not bit-exact: within one level of the exact paths (`tools/movie-fast-check.sh`); `GD01_VITA_EXACT_MOVIE=1` switches back. Intro movie on hardware: decode 50 to 27 ms a picture, conversion 21 to 7 ms, about 8 to about 25 pictures shown a second, no B pictures skipped |
 | 2026-11-13 | `0032-vita-movie-fullscreen.patch` | `gd-game-01/engine/src/app.cpp` | PS Vita: movies are stretched to the full 16:9 screen instead of shown 4:3 with bars at the sides |
+| 2026-11-13 | `0033-vita-port-texts.patch` | `gd-game-01/engine/src/ui/pc_strings.cpp`, `gd-game-01/engine/src/app.cpp` | PS Vita: the save and load messages that named GD-Engine use the port's wording ("GH Vita" or no name); the six GD-Engine developer loading tips are replaced by four of the port's own; the first screen's fallback name (no logo image) reads "GH Vita". The start screen notice and the credits keep the GD-Engine attribution |
 | 2026-11-11 | `0020-vita-async-song-preview.patch` (updated) | `gd-game-01/engine/src/data/iso9660.h`, `gd-game-01/engine/src/data/iso9660.cpp`, `gd-game-01/engine/src/data/vgs.cpp` | PS Vita: `RandomFile::read` uses `sceIoPread` (positional, 4 MB pieces) instead of fseek + fread: ~3x faster disc reads, safe from the preview thread without a lock |
 
 ## New files
@@ -94,4 +95,5 @@ platforms build exactly as upstream.
 - Textures of at most 256 colours are stored paletted and without mip levels (distant surfaces may shimmer slightly).
 - Shaders are rewritten to GLSL ES 1.00; the auto-exposure pass reads its 1x1 level with a texture bias.
 - Songs: the far end of the highway is not faded into the venue (patch 0010).
+- Texts: save and load messages say "GH Vita" or no name where the PC version says "GD-Engine"; the GD-Engine developer loading tips are replaced by the port's own (patch 0033).
 - Movies: decoded with an integer inverse DCT and a fast colour conversion (within one level of the PC version's picture), and stretched to the full screen. When the Vita still decodes slower than real time, B pictures are skipped, so the video shows fewer pictures per second but stays in sync with its sound.
