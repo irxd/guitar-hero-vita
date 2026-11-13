@@ -36,17 +36,16 @@ Working on the Vita:
 
 Known limitations:
 
-- **Movies** (intro and in-game videos) play in sync with their sound but choppy, at about
-  8 pictures a second: the engine decodes MPEG-2 in software, and the Vita's CPU is short of
-  real time even with NEON code paths
+- **Movies** (intro and in-game videos) play in sync with their sound at about 25 of their
+  30 pictures a second, stretched to the full screen. The engine decodes MPEG-2 in software;
+  on the Vita a faster integer decoder is used, within one brightness level of the exact one
 - **Not tested yet:** Career mode, tutorials, the Gamepads screen, Button Layout 2 in a song; multiplayer (face-off) needs a
   second controller (a PS TV, or a Vita with a DualShock plugin such as ds4vita) and is untested
 - **Vita-only differences from the PC version:** no post-processing effects by default
   (bloom, depth of field), no fade at the far end of the highway, no AI upscaling, HDR or
   MIDI guitars
 
-Still to do before a release: smoother movies,
-then a VPK release with its source.
+Still to do before a release: a VPK release with its source.
 Full record of every hardware run: [docs/port-plan.md](docs/port-plan.md).
 
 ## Performance

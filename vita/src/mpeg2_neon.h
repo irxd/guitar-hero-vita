@@ -37,6 +37,18 @@ bool addBlockNeon(uint8_t* dst, int stride, const int* resid, bool intra);
 bool yuvToRgbaNeon(const uint8_t* y, int lumaStride, const uint8_t* cb, const uint8_t* cr, int chromaStride, int width,
                    int height, bool progressive, bool blend, uint8_t* dst, size_t dstStride);
 
+// Fast paths (2026-11-13), not bit-exact: the exact ones above left the movies
+// at about 8 pictures a second. Off with GD01_VITA_EXACT_MOVIE=1.
+//
+// Integer inverse DCT of `in` (as idct8x8Neon) written (intra) or added
+// (non-intra) to dst, clamped to 0..255: within one level of the float IDCT.
+// False when it declines (no NEON, switched off, or its self-test failed).
+bool idctAddFastNeon(const int16_t* in, uint8_t rowMask, uint8_t* dst, int stride, bool intra);
+void idctAddFastScalar(const int16_t* in, uint8_t* dst, int stride, bool intra);  // the same integer steps, for tests
+// yuvToRgbaNeon takes its fast conversion by itself (within one level of the
+// exact one); this is one pixel of it, for tests.
+void yuvFastPixel(uint8_t y, uint8_t u, uint8_t v, uint8_t* rgba);
+
 // Late-picture policy (movie worker): while set, the decoder skips B
 // pictures (not references) and keeps their display indices.
 void setMpeg2SkipBPictures(bool skip);

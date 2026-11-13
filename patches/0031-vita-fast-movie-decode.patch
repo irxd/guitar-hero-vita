@@ -1,0 +1,33 @@
+diff --git a/gd-game-01/engine/src/video/mpeg2.cpp b/gd-game-01/engine/src/video/mpeg2.cpp
+index 56cf0c1..2a2b341 100644
+--- a/gd-game-01/engine/src/video/mpeg2.cpp
++++ b/gd-game-01/engine/src/video/mpeg2.cpp
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-10: PS Vita: IDCT, motion compensation, block output and RGBA conversion run on NEON, and B pictures can be skipped when the player is late (vita/src/mpeg2_neon.cpp).
++// Modified by irxd on 2026-11-13: PS Vita: integer IDCT written straight to the picture and a fast RGBA conversion (within one level of the exact ones).
+ #include "video/mpeg2.h"
+ 
+ #include <algorithm>
+@@ -866,6 +867,11 @@ struct Mpeg2Decoder::Impl {
+                 dst = &(b == 4 ? f.cb : f.cr)[size_t(my) * 8 * cs + mx * 8];
+                 stride = cs;
+             }
++#if defined(__vita__)
++            // PS Vita: an integer IDCT written straight to the picture, within one
++            // level of the float one below and about five times faster on the A9.
++            if (vita::idctAddFastNeon(coef, rowMask, dst, stride, intra)) continue;
++#endif
+             idct8x8(coef, resid, rowMask);
+ #if defined(__vita__)
+             if (vita::addBlockNeon(dst, stride, resid, intra)) continue;  // PS Vita: same results
+@@ -1005,7 +1011,7 @@ void mpeg2ToRgba(const Mpeg2Frame& f, uint8_t* dst, size_t dstStride, bool deint
+ #if defined(__vita__)
+     if (vita::yuvToRgbaNeon(f.y.data(), f.lumaStride, f.cb.data(), f.cr.data(), f.chromaStride, f.width, f.height,
+                             f.progressive, blend, dst, dstStride))
+-        return;  // PS Vita: same results
++        return;  // PS Vita: its fast conversion (within one level), or the same results
+ #endif
+     for (int y = 0; y < f.height; ++y) {
+         // Interlaced 4:2:0 keeps each field's chroma on its own lines.

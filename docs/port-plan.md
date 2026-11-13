@@ -197,7 +197,13 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
 
 ### Phase 4: Vita polish and release (1–2 weeks)
 - [ ] Input map, default (user's layout, 2026-11-11, patch 0004): Green = D-pad ←, Red = L, Yellow = R, Blue = ○, Orange = ✕; strum = D-pad up/down; Star Power = Select (+ optional tilt via the motion sensor); whammy = right stick; pause = Start. Optional alternatives: front-touch fret zones, rear-touch strum. All remappable via the GAMEPADS screen. Labelled as a "handheld mode".
-- [ ] FMV: keep it if ≥ 30 fps, otherwise skip it with a log line
+- [x] FMV kept (2026-11-13, patches 0031/0032): fast paths in `vita/src/mpeg2_neon.cpp`, movies stretched to the full screen.
+  - Before (intro movie, hardware): decode 49-53 ms a picture (5,300-5,800 IDCT blocks at 6.3 us), conversion 21.5 ms, ~8 pictures shown a second, 50-67 B pictures skipped per 5 s.
+  - Integer IDCT (LLM as in the IJG's jidctint.c, 32-bit sums, `vmull`/`vmlal`, sparse first pass when rows 4-7 are zero, DC-only shortcut) fused with the block output: **2.0 us a block** (self-test mix). Colour conversion in 16-bit lanes (6 fraction bits, chroma terms computed once per sample): **7 ms a picture**.
+  - After: decode 24-28 ms, conversion 7 ms, **all 30 pictures decoded, 22-30 shown a second (about 25)**, no B pictures skipped, at most 1 frame late.
+  - Accuracy (`tools/movie-fast-check.sh`, desktop, scalar code the NEON is checked against on the console): IDCT never more than 1 level from the float IDCT (1.4% of pixels differ), mean error -0.0002 against a double-precision IDCT; colour never more than 1 level (5% of channel values differ). `GD01_VITA_EXACT_MOVIE=1` selects the exact paths.
+  - Lesson: `vqrshrn_n_s32` takes shifts up to 16; the second pass's 18 is `vshrn #16` then `vrshr #2` (same value).
+  - Left for a full 30: decode + conversion is ~34 ms on core 1 against 33.4 ms. Moving the conversion to core 2 (copy the planes, ~430 KB) would close it. The rest of decode (~17 ms) is bitstream parsing and motion compensation.
 - [ ] **Later (asked on Reddit, 2026-11-13): help for fast same-note runs (alt-strum sections).** On the Vita a fret press already plays a note, but a fast run of one note means hammering one button or alternating D-pad ↑/↓.
   1. **Rear touchpad strum (build first):** each new finger touch on the rear pad is a strum, so two fingers drummed on the back work like alternate picking. Input-only (SDL3 reports the rear pad as its own touch device). Enhanced Settings toggle, off by default; ignore touches that stay down (grip) and count only fresh taps, maybe only in the middle of the pad.
   2. **Auto-strum assist (maybe, after 1):** while a button is held, notes on the held frets are hit at their exact time. Not fixed-rate rapid fire: GH1 penalises strums with no note, so that would break the combo. Touches gameplay code; label it as an assist, off by default.

@@ -61,6 +61,8 @@ platforms build exactly as upstream.
 | 2026-11-12 | `0028-vita-crowd-at-60.patch` | `gd-game-01/engine/src/app.cpp`, `gd-game-01/engine/src/render/crowd_renderer.h`, `gd-game-01/engine/src/render/crowd_renderer.cpp` | PS Vita: at 60 FPS the Crowd setting draws 4 3D members (8 at 30) and the crowd cut-outs are re-rendered a third a frame (20 Hz each; halves at 30 FPS as before); 3D members keep animating half per frame. 60 FPS average 43.7 to 46.0 FPS, CPU 22.5 to 20.5 ms a frame |
 | 2026-11-12 | `0029-vita-anim-slot-cache.patch` | `gd-game-01/engine/src/scene/character.cpp` | PS Vita: each animation value's bone slot cached per clip in the index skeleton (one hash and string compare per value per frame before); the skeleton self-check still matches upstream for every character. 60 FPS benchmark CPU 20.5 to 19.9 ms a frame |
 | 2026-11-13 | `0030-vita-splash-notice.patch` | `gd-game-01/engine/src/ui/panel.cpp` | PS Vita: the start screen's first three notice lines become one line, "GH Vita, based on GD-Engine"; the copyright and patent lines stay. The attribution line stays on the credits screen |
+| 2026-11-13 | `0031-vita-fast-movie-decode.patch` | `gd-game-01/engine/src/video/mpeg2.cpp` | PS Vita: movie blocks go through an integer inverse DCT written straight to the picture, and the RGBA conversion uses 16-bit fixed point (`vita/src/mpeg2_neon.cpp`). Not bit-exact: within one level of the exact paths (`tools/movie-fast-check.sh`); `GD01_VITA_EXACT_MOVIE=1` switches back. Intro movie on hardware: decode 50 to 27 ms a picture, conversion 21 to 7 ms, about 8 to about 25 pictures shown a second, no B pictures skipped |
+| 2026-11-13 | `0032-vita-movie-fullscreen.patch` | `gd-game-01/engine/src/app.cpp` | PS Vita: movies are stretched to the full 16:9 screen instead of shown 4:3 with bars at the sides |
 | 2026-11-11 | `0020-vita-async-song-preview.patch` (updated) | `gd-game-01/engine/src/data/iso9660.h`, `gd-game-01/engine/src/data/iso9660.cpp`, `gd-game-01/engine/src/data/vgs.cpp` | PS Vita: `RandomFile::read` uses `sceIoPread` (positional, 4 MB pieces) instead of fseek + fread: ~3x faster disc reads, safe from the preview thread without a lock |
 
 ## New files
@@ -80,7 +82,7 @@ platforms build exactly as upstream.
 | 2026-11-12 | `vita/src/vita_settings.h` | The Enhanced Settings the Vita does not show, used by patch 0023 |
 | 2026-11-12 | `vita/src/vita_settings.h` (updated) | Declares `vita::setButtonLayout`, used by patch 0024 |
 | 2026-11-10 | `vita/compat/dlfcn.h` | Stub dynamic-loader header (the Vita has none) |
-| 2026-11-10 | `vita/tests/` | Desktop checks for the shader rewrite and the palette packing |
+| 2026-11-10 | `vita/tests/` | Desktop checks for the shader rewrite and the palette packing; 2026-11-13: accuracy check of the movie fast paths (`movie_fast_check.cpp`) |
 | 2026-11-10 | `tools/` | Toolchain setup, desktop and Vita builds, patch stack, shader dump and validation, GPU memory probe, crash dump decoding, movie decode benchmark, hardware build/deploy/run loop (`vita-loop.sh`) |
 | 2026-11-10 | `README.md`, `CLAUDE.md`, `docs/port-plan.md` | Project documentation |
 
@@ -92,4 +94,4 @@ platforms build exactly as upstream.
 - Textures of at most 256 colours are stored paletted and without mip levels (distant surfaces may shimmer slightly).
 - Shaders are rewritten to GLSL ES 1.00; the auto-exposure pass reads its 1x1 level with a texture bias.
 - Songs: the far end of the highway is not faded into the venue (patch 0010).
-- Movies: when the Vita decodes slower than real time, B pictures are skipped, so the video shows fewer pictures per second but stays in sync with its sound.
+- Movies: decoded with an integer inverse DCT and a fast colour conversion (within one level of the PC version's picture), and stretched to the full screen. When the Vita still decodes slower than real time, B pictures are skipped, so the video shows fewer pictures per second but stays in sync with its sound.

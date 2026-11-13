@@ -75,6 +75,108 @@ inline uint8_t clamp255(int v) { return static_cast<uint8_t>(v < 0 ? 0 : v > 255
     }
 }
 
+// --- Fast paths: scalar references ---------------------------------------------
+//
+// The exact paths (upstream's float IDCT and 16.16 colour conversion, bit for
+// bit) took ~50 ms to decode and ~21 ms to convert a picture, and the movies
+// ran at about 8 pictures a second (hardware, 2026-11-13). The fast paths
+// trade bit-exactness for speed: an integer IDCT (the LLM algorithm of the
+// IJG's jidctint.c, 13-bit constants, 32-bit sums) written straight to the
+// picture, and an 8.6 fixed-point colour conversion in 16-bit lanes. Results
+// are within one level of the exact paths (tools/movie-fast-check.sh).
+// Each NEON function is checked on first use against the scalar code here,
+// which performs the same integer steps.
+
+inline int16_t sat16(int64_t v) { return int16_t(v < -32768 ? -32768 : v > 32767 ? 32767 : v); }
+// vqrshrn_n_s32: rounding shift right, saturated to 16 bits.
+inline int16_t roundShift16(uint32_t x, int shift) {
+    return sat16((int64_t(int32_t(x)) + (int64_t(1) << (shift - 1))) >> shift);
+}
+
+// One 8-point inverse DCT, sqrt(8) times the orthonormal one, scaled by
+// 2^13 before `shift`. Sums wrap in 32 bits, as the NEON lanes do (only
+// out-of-range input can reach that).
+void idct1dFastScalar(const int16_t* in, int step, int16_t* out, int shift) {
+    auto I = [&](int k) { return uint32_t(int32_t(in[k * step])); };
+    auto M = [](uint32_t v, int c) { return v * uint32_t(c); };
+    const uint32_t t2 = M(I(2), 4433) + M(I(6), -10704), t3 = M(I(2), 10703) + M(I(6), 4433);
+    const uint32_t t0 = (I(0) + I(4)) << 13, t1 = (I(0) - I(4)) << 13;
+    const uint32_t t10 = t0 + t3, t13 = t0 - t3, t11 = t1 + t2, t12 = t1 - t2;
+    const uint32_t z3 = M(I(7), -6436) + M(I(3), -6436) + M(I(5), 9633) + M(I(1), 9633);
+    const uint32_t z4 = M(I(5), 6437) + M(I(1), 6437) + M(I(7), 9633) + M(I(3), 9633);
+    const uint32_t o0 = z3 + M(I(7), -4927) + M(I(1), -7373), o1 = z4 + M(I(5), -4176) + M(I(3), -20995);
+    const uint32_t o2 = z3 + M(I(3), 4177) + M(I(5), -20995), o3 = z4 + M(I(1), 4926) + M(I(7), -7373);
+    out[0 * step] = roundShift16(t10 + o3, shift), out[7 * step] = roundShift16(t10 - o3, shift);
+    out[1 * step] = roundShift16(t11 + o2, shift), out[6 * step] = roundShift16(t11 - o2, shift);
+    out[2 * step] = roundShift16(t12 + o1, shift), out[5 * step] = roundShift16(t12 - o1, shift);
+    out[3 * step] = roundShift16(t13 + o0, shift), out[4 * step] = roundShift16(t13 - o0, shift);
+}
+
+constexpr int kFastPass1 = 11, kFastPass2 = 18;  // 13 - 2, and 13 + 2 + 3 (the two passes' factor of 8)
+
+void idctAddFastScalarImpl(const int16_t* in, uint8_t* dst, int stride, bool intra) {
+    int16_t tmp[64], res[64];
+    for (int u = 0; u < 8; ++u) idct1dFastScalar(in + u, 8, tmp + u, kFastPass1);          // columns
+    for (int y = 0; y < 8; ++y) idct1dFastScalar(tmp + y * 8, 1, res + y * 8, kFastPass2);  // rows
+    // No clamp to [-256, 255] as upstream has: with the 0..255 clamp after it, it changes nothing.
+    for (int y = 0; y < 8; ++y) {
+        uint8_t* d = dst + y * stride;
+        for (int x = 0; x < 8; ++x) d[x] = clamp255(intra ? res[y * 8 + x] : d[x] + res[y * 8 + x]);
+    }
+}
+
+// BT.601 limited range with 6 fraction bits: 1.164 (Y - 16) as a rounding
+// doubling high multiply of (Y - 16) << 7 by 19077, chroma factors 102, 25,
+// 52 and 129 over 64.
+inline void yuvFastPixelImpl(int Y, int U, int V, uint8_t* d) {
+    const int yt = (2 * ((Y - 16) * 128) * 19077 + 0x8000) >> 16;
+    const int u = U - 128, v = V - 128;
+    const int r = yt + v * 102, g = yt - u * 25 - v * 52, b = std::min(yt + u * 129, 32767);
+    d[0] = clamp255((r + 32) >> 6);
+    d[1] = clamp255((g + 32) >> 6);
+    d[2] = clamp255((b + 32) >> 6);
+    d[3] = 255;
+}
+
+struct Planes {
+    const uint8_t *y, *cb, *cr;
+    int lumaStride, chromaStride, width, height;
+    bool progressive;
+};
+
+// Interlaced 4:2:0 keeps each field's chroma on its own lines.
+inline int chromaRow(const Planes& f, int y) { return f.progressive ? y >> 1 : ((y >> 2) << 1) | (y & 1); }
+
+[[maybe_unused]] void yuvRowFastScalar(const Planes& f, int y, bool blend, uint8_t* d, int x0) {
+    const int y2 = std::min(y + 1, f.height - 1);
+    const int cy = chromaRow(f, y), cy2 = chromaRow(f, y2);
+    const uint8_t* ly = f.y + size_t(y) * f.lumaStride;
+    const uint8_t* ly2 = f.y + size_t(y2) * f.lumaStride;
+    const uint8_t* lu = f.cb + size_t(cy) * f.chromaStride;
+    const uint8_t* lv = f.cr + size_t(cy) * f.chromaStride;
+    const uint8_t* lu2 = f.cb + size_t(cy2) * f.chromaStride;
+    const uint8_t* lv2 = f.cr + size_t(cy2) * f.chromaStride;
+    d += size_t(x0) * 4;
+    for (int x = x0; x < f.width; ++x, d += 4) {
+        int Y = ly[x], U = lu[x >> 1], V = lv[x >> 1];
+        if (blend) {
+            Y = (Y + ly2[x] + 1) >> 1;
+            U = (U + lu2[x >> 1] + 1) >> 1;
+            V = (V + lv2[x >> 1] + 1) >> 1;
+        }
+        yuvFastPixelImpl(Y, U, V, d);
+    }
+}
+
+// GD01_VITA_EXACT_MOVIE=1: the bit-exact paths only (for comparisons).
+[[maybe_unused]] bool fastMovie() {
+    static const bool on = [] {
+        const char* v = SDL_getenv("GD01_VITA_EXACT_MOVIE");
+        return !(v && *v && *v != '0');
+    }();
+    return on;
+}
+
 #if defined(__ARM_NEON)
 
 // --- Inverse DCT -------------------------------------------------------------
@@ -321,17 +423,9 @@ bool addBlockSelfTest() {
 
 // --- YUV 4:2:0 to RGBA ------------------------------------------------------------
 
-struct Planes {
-    const uint8_t *y, *cb, *cr;
-    int lumaStride, chromaStride, width, height;
-    bool progressive;
-};
-
 // Upstream's mpeg2ToRgba row (BT.601 limited range, 16.16 fixed point), for
 // the self-test and for the last width % 16 pixels of a row.
 constexpr int kY = 76309, kRv = 104597, kGu = 25675, kGv = 53279, kBu = 132201;
-
-inline int chromaRow(const Planes& f, int y) { return f.progressive ? y >> 1 : ((y >> 2) << 1) | (y & 1); }
 
 void yuvRowScalar(const Planes& f, int y, bool blend, uint8_t* d, int x0) {
     const int y2 = std::min(y + 1, f.height - 1);
@@ -446,6 +540,214 @@ bool yuvSelfTest() {
     return bad == 0;
 }
 
+// --- Fast integer inverse DCT, written straight to the picture -------------------
+
+// roundShift16 on four lanes. vqrshrn takes shifts up to 16; a larger one is a
+// plain shift by 16 and a rounding shift by the rest, which is the same value
+// (floor((floor(x / 2^16) + 2^(n-1)) / 2^n) = floor((x + 2^(15+n)) / 2^(16+n)))
+// and always fits 16 bits.
+template <int Shift>
+inline int16x4_t roundShift16x4(int32x4_t x) {
+    if constexpr (Shift <= 16) return vqrshrn_n_s32(x, Shift);
+    else return vrshr_n_s16(vshrn_n_s32(x, 16), Shift - 16);
+}
+
+// idct1dFastScalar on four lanes. Sparse: inputs 4..7 are zero.
+template <int Shift, bool Sparse>
+inline void idctKernel(const int16x4_t* i, int16x4_t* o) {
+    int32x4_t t0, t1, t2, t3, z3, z4;
+    if (Sparse) {
+        t2 = vmull_n_s16(i[2], 4433), t3 = vmull_n_s16(i[2], 10703);
+        t0 = t1 = vshll_n_s16(i[0], 13);
+        z3 = vmlal_n_s16(vmull_n_s16(i[3], -6436), i[1], 9633);
+        z4 = vmlal_n_s16(vmull_n_s16(i[1], 6437), i[3], 9633);
+    } else {
+        t2 = vmlal_n_s16(vmull_n_s16(i[2], 4433), i[6], -10704);
+        t3 = vmlal_n_s16(vmull_n_s16(i[2], 10703), i[6], 4433);
+        t0 = vshlq_n_s32(vaddl_s16(i[0], i[4]), 13), t1 = vshlq_n_s32(vsubl_s16(i[0], i[4]), 13);
+        z3 = vmlal_n_s16(vmlal_n_s16(vmlal_n_s16(vmull_n_s16(i[7], -6436), i[3], -6436), i[5], 9633), i[1], 9633);
+        z4 = vmlal_n_s16(vmlal_n_s16(vmlal_n_s16(vmull_n_s16(i[5], 6437), i[1], 6437), i[7], 9633), i[3], 9633);
+    }
+    const int32x4_t t10 = vaddq_s32(t0, t3), t13 = vsubq_s32(t0, t3), t11 = vaddq_s32(t1, t2), t12 = vsubq_s32(t1, t2);
+    int32x4_t o0 = vmlal_n_s16(z3, i[1], -7373), o1 = vmlal_n_s16(z4, i[3], -20995);
+    int32x4_t o2 = vmlal_n_s16(z3, i[3], 4177), o3 = vmlal_n_s16(z4, i[1], 4926);
+    if (!Sparse) {
+        o0 = vmlal_n_s16(o0, i[7], -4927), o1 = vmlal_n_s16(o1, i[5], -4176);
+        o2 = vmlal_n_s16(o2, i[5], -20995), o3 = vmlal_n_s16(o3, i[7], -7373);
+    }
+    o[0] = roundShift16x4<Shift>(vaddq_s32(t10, o3)), o[7] = roundShift16x4<Shift>(vsubq_s32(t10, o3));
+    o[1] = roundShift16x4<Shift>(vaddq_s32(t11, o2)), o[6] = roundShift16x4<Shift>(vsubq_s32(t11, o2));
+    o[2] = roundShift16x4<Shift>(vaddq_s32(t12, o1)), o[5] = roundShift16x4<Shift>(vsubq_s32(t12, o1));
+    o[3] = roundShift16x4<Shift>(vaddq_s32(t13, o0)), o[4] = roundShift16x4<Shift>(vsubq_s32(t13, o0));
+}
+
+// The 1-D transform across v[0..7], on all eight lanes.
+template <int Shift, bool Sparse>
+inline void idctPass(int16x8_t* v) {
+    int16x4_t a[8], b[8], oa[8], ob[8];
+    for (int k = 0; k < 8; ++k) a[k] = vget_low_s16(v[k]), b[k] = vget_high_s16(v[k]);
+    idctKernel<Shift, Sparse>(a, oa);
+    idctKernel<Shift, Sparse>(b, ob);
+    for (int k = 0; k < 8; ++k) v[k] = vcombine_s16(oa[k], ob[k]);
+}
+
+inline void transpose8(int16x8_t* v) {
+    const int16x8x2_t a01 = vtrnq_s16(v[0], v[1]), a23 = vtrnq_s16(v[2], v[3]);
+    const int16x8x2_t a45 = vtrnq_s16(v[4], v[5]), a67 = vtrnq_s16(v[6], v[7]);
+#define VITA_TRN32(A, B, K) vtrnq_s32(vreinterpretq_s32_s16(A.val[K]), vreinterpretq_s32_s16(B.val[K]))
+    const int32x4x2_t b02 = VITA_TRN32(a01, a23, 0), b13 = VITA_TRN32(a01, a23, 1);
+    const int32x4x2_t b46 = VITA_TRN32(a45, a67, 0), b57 = VITA_TRN32(a45, a67, 1);
+#undef VITA_TRN32
+#define VITA_COL(TOP, BOTTOM, K, HALF) \
+    vreinterpretq_s16_s32(vcombine_s32(vget_##HALF##_s32(TOP.val[K]), vget_##HALF##_s32(BOTTOM.val[K])))
+    v[0] = VITA_COL(b02, b46, 0, low), v[4] = VITA_COL(b02, b46, 0, high);
+    v[1] = VITA_COL(b13, b57, 0, low), v[5] = VITA_COL(b13, b57, 0, high);
+    v[2] = VITA_COL(b02, b46, 1, low), v[6] = VITA_COL(b02, b46, 1, high);
+    v[3] = VITA_COL(b13, b57, 1, low), v[7] = VITA_COL(b13, b57, 1, high);
+#undef VITA_COL
+}
+
+inline void putRow(uint8_t* d, int16x8_t v, bool intra) {
+    if (!intra) v = vqaddq_s16(v, vreinterpretq_s16_u16(vmovl_u8(vld1_u8(d))));
+    vst1_u8(d, vqmovun_s16(v));
+}
+
+void idctAddFastNeonImpl(const int16_t* in, uint8_t rowMask, uint8_t* dst, int stride, bool intra) {
+    int16x8_t v[8];
+    v[0] = vld1q_s16(in);
+    if (rowMask == 1) {
+        // DC only: every residual is the same value (the two passes of idct1dFastScalar on one coefficient).
+        const uint64x2_t ac = vreinterpretq_u64_s16(vsetq_lane_s16(0, v[0], 0));
+        if ((vgetq_lane_u64(ac, 0) | vgetq_lane_u64(ac, 1)) == 0) {
+            const int16_t p = roundShift16(uint32_t(int32_t(in[0])) << 13, kFastPass1);
+            const int16x8_t dc = vdupq_n_s16(roundShift16(uint32_t(int32_t(p)) << 13, kFastPass2));
+            for (int y = 0; y < 8; ++y) putRow(dst + y * stride, dc, intra);
+            return;
+        }
+    }
+    for (int k = 1; k < 8; ++k) v[k] = vld1q_s16(in + k * 8);
+    // Columns first: v[k] is the row of vertical frequency k, so rows 4..7
+    // all zero (common: the scans put low frequencies first) halve the work.
+    if (rowMask & 0xf0) idctPass<kFastPass1, false>(v);
+    else idctPass<kFastPass1, true>(v);
+    transpose8(v);
+    idctPass<kFastPass2, false>(v);
+    transpose8(v);
+    for (int y = 0; y < 8; ++y) putRow(dst + y * stride, v[y], intra);
+}
+
+bool idctFastSelfTest() {
+    uint32_t seed = 0x1234567u;
+    auto rnd = [&]() { return seed = seed * 1664525u + 1013904223u; };
+    static int16_t ins[2000][64];
+    static uint8_t masks[2000];
+    uint8_t a[8 * 9], b[8 * 9];
+    int bad = 0;
+    const int kBlocks = 2000;
+    for (int n = 0; n < kBlocks; ++n) {
+        int16_t* in = ins[n];
+        uint8_t& mask = masks[n];
+        mask = 0;
+        const int density = n % 5;  // 0: DC only, 1: sparse, 2: low rows only, 3-4: dense
+        for (int i = 0; i < 64; ++i) {
+            int v = 0;
+            if (i == 0) v = int(rnd() >> 20) - 2048;
+            else if (density == 1 && (rnd() & 15) == 0) v = int(rnd() >> 24) - 128;
+            else if (density == 2 && i < 32 && (rnd() & 3) == 0) v = int(rnd() >> 23) - 256;
+            else if (density >= 3 && (rnd() & 1)) v = int(rnd() >> 21) - 1024;
+            in[i] = int16_t(v);
+            if (v) mask |= uint8_t(1u << (i / 8));
+        }
+        for (size_t i = 0; i < sizeof a; ++i) a[i] = b[i] = uint8_t(rnd() >> 24);
+        const bool intra = n & 1;
+        idctAddFastScalarImpl(in, a, 9, intra);
+        idctAddFastNeonImpl(in, mask, b, 9, intra);
+        if (!std::equal(a, a + sizeof a, b)) ++bad;
+    }
+    const double neon = usPer(kBlocks, [&](int i) { idctAddFastNeonImpl(ins[i], masks[i], b, 9, i & 1); });
+    const double scalar = usPer(kBlocks, [&](int i) { idctAddFastScalarImpl(ins[i], a, 9, i & 1); });
+    SDL_Log("vita: NEON fast IDCT self-test: %d of %d blocks differ%s; %.2f us a block with its output (scalar %.2f)", bad,
+            kBlocks, bad ? " (using the exact code)" : "", neon, scalar);
+    return bad == 0;
+}
+
+// --- Fast YUV 4:2:0 to RGBA ---------------------------------------------------------
+
+void yuvRowFastNeon(const Planes& f, int y, bool blend, uint8_t* d) {
+    const int y2 = std::min(y + 1, f.height - 1);
+    const int cy = chromaRow(f, y), cy2 = chromaRow(f, y2);
+    const uint8_t* ly = f.y + size_t(y) * f.lumaStride;
+    const uint8_t* ly2 = f.y + size_t(y2) * f.lumaStride;
+    const uint8_t* lu = f.cb + size_t(cy) * f.chromaStride;
+    const uint8_t* lv = f.cr + size_t(cy) * f.chromaStride;
+    const uint8_t* lu2 = f.cb + size_t(cy2) * f.chromaStride;
+    const uint8_t* lv2 = f.cr + size_t(cy2) * f.chromaStride;
+    const int simdEnd = f.width & ~15;
+    const uint8x8_t k16 = vdup_n_u8(16), k128 = vdup_n_u8(128);
+    uint8x16x4_t px;
+    px.val[3] = vdupq_n_u8(255);
+    for (int x = 0; x < simdEnd; x += 16) {
+        uint8x16_t Y = vld1q_u8(ly + x);
+        uint8x8_t U = vld1_u8(lu + x / 2), V = vld1_u8(lv + x / 2);
+        if (blend) {
+            Y = vrhaddq_u8(Y, vld1q_u8(ly2 + x));
+            U = vrhadd_u8(U, vld1_u8(lu2 + x / 2));
+            V = vrhadd_u8(V, vld1_u8(lv2 + x / 2));
+        }
+        // Chroma terms once per sample, then each one for its two pixels.
+        const int16x8_t u = vreinterpretq_s16_u16(vsubl_u8(U, k128)), v = vreinterpretq_s16_u16(vsubl_u8(V, k128));
+        const int16x8_t rv = vmulq_n_s16(v, 102), bu = vmulq_n_s16(u, 129);
+        const int16x8_t guv = vmlaq_n_s16(vmulq_n_s16(u, 25), v, 52);
+        const int16x8x2_t rv2 = vzipq_s16(rv, rv), bu2 = vzipq_s16(bu, bu), guv2 = vzipq_s16(guv, guv);
+        uint8x8_t r[2], g[2], b[2];
+        for (int h = 0; h < 2; ++h) {
+            const uint8x8_t y8 = h ? vget_high_u8(Y) : vget_low_u8(Y);
+            const int16x8_t yt = vqrdmulhq_n_s16(vshlq_n_s16(vreinterpretq_s16_u16(vsubl_u8(y8, k16)), 7), 19077);
+            r[h] = vqrshrun_n_s16(vaddq_s16(yt, rv2.val[h]), 6);
+            g[h] = vqrshrun_n_s16(vsubq_s16(yt, guv2.val[h]), 6);
+            b[h] = vqrshrun_n_s16(vqaddq_s16(yt, bu2.val[h]), 6);
+        }
+        px.val[0] = vcombine_u8(r[0], r[1]);
+        px.val[1] = vcombine_u8(g[0], g[1]);
+        px.val[2] = vcombine_u8(b[0], b[1]);
+        vst4q_u8(d + size_t(x) * 4, px);
+    }
+    if (simdEnd < f.width) yuvRowFastScalar(f, y, blend, d, simdEnd);
+}
+
+void yuvFastNeonImpl(const Planes& f, bool blend, uint8_t* dst, size_t dstStride) {
+    for (int y = 0; y < f.height; ++y) yuvRowFastNeon(f, y, blend, dst + size_t(y) * dstStride);
+}
+
+bool yuvFastSelfTest() {
+    uint32_t seed = 0x13579bdu;
+    auto rnd = [&]() { return seed = seed * 1664525u + 1013904223u; };
+    constexpr int W = 40, H = 12, LS = 43, CS = 23;
+    static uint8_t yp[LS * H], up[CS * H / 2], vp[CS * H / 2], a[W * 4 * H], b[W * 4 * H], exact[W * 4 * H];
+    int bad = 0, cases = 0, maxDiff = 0;
+    for (int n = 0; n < 64; ++n) {
+        for (auto& v : yp) v = uint8_t(rnd() >> 24);
+        for (auto& v : up) v = uint8_t(rnd() >> 24);
+        for (auto& v : vp) v = uint8_t(rnd() >> 24);
+        const Planes f{yp, up, vp, LS, CS, W, H, (n & 1) != 0};
+        const bool blend = n & 2;
+        for (int y = 0; y < H; ++y) {
+            yuvRowFastScalar(f, y, blend, a + y * W * 4, 0);
+            yuvRowScalar(f, y, blend, exact + y * W * 4, 0);
+        }
+        yuvFastNeonImpl(f, blend, b, W * 4);
+        ++cases;
+        if (!std::equal(a, a + sizeof a, b)) ++bad;
+        for (size_t i = 0; i < sizeof a; ++i) maxDiff = std::max(maxDiff, std::abs(int(a[i]) - int(exact[i])));
+    }
+    const Planes big{yp, up, vp, LS, CS, 32, H, true};
+    const double neon = usPer(200, [&](int) { yuvFastNeonImpl(big, false, b, W * 4); });
+    SDL_Log("vita: NEON fast YUV to RGBA self-test: %d of %d pictures differ%s; %.2f us per 32x12; up to %d levels "
+            "from the exact conversion",
+            bad, cases, bad ? " (using the exact code)" : "", neon, maxDiff);
+    return bad == 0;
+}
+
 #endif  // __ARM_NEON
 
 }  // namespace
@@ -491,6 +793,25 @@ bool idct8x8Neon(const int16_t* in, int* out, uint8_t rowMask) {
 #endif
 }
 
+bool idctAddFastNeon(const int16_t* in, uint8_t rowMask, uint8_t* dst, int stride, bool intra) {
+#if defined(__ARM_NEON)
+    static const bool ok = fastMovie() && idctFastSelfTest();
+    if (!ok) return false;
+    ++gIdctCalls, ++gAddCalls;
+    idctAddFastNeonImpl(in, rowMask, dst, stride, intra);
+    return true;
+#else
+    (void)in, (void)rowMask, (void)dst, (void)stride, (void)intra;
+    return false;
+#endif
+}
+
+void idctAddFastScalar(const int16_t* in, uint8_t* dst, int stride, bool intra) {
+    idctAddFastScalarImpl(in, dst, stride, intra);
+}
+
+void yuvFastPixel(uint8_t y, uint8_t u, uint8_t v, uint8_t* rgba) { yuvFastPixelImpl(y, u, v, rgba); }
+
 bool predictNeon(bool avg, uint8_t* dst, int dstStride, const uint8_t* src, int srcStride, int w, int h, int hx,
                  int hy) {
 #if defined(__ARM_NEON)
@@ -521,6 +842,11 @@ bool addBlockNeon(uint8_t* dst, int stride, const int* resid, bool intra) {
 bool yuvToRgbaNeon(const uint8_t* y, int lumaStride, const uint8_t* cb, const uint8_t* cr, int chromaStride, int width,
                    int height, bool progressive, bool blend, uint8_t* dst, size_t dstStride) {
 #if defined(__ARM_NEON)
+    static const bool fast = fastMovie() && yuvFastSelfTest();
+    if (fast) {
+        yuvFastNeonImpl(Planes{y, cb, cr, lumaStride, chromaStride, width, height, progressive}, blend, dst, dstStride);
+        return true;
+    }
     static const bool ok = yuvSelfTest();
     if (!ok) return false;
     yuvNeonImpl(Planes{y, cb, cr, lumaStride, chromaStride, width, height, progressive}, blend, dst, dstStride);
