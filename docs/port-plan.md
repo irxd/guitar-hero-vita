@@ -204,7 +204,7 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
   3. Front-screen swipe strum: skipped (thumbs are on the buttons).
   Related idea from the user: Star Power on a rear tap.
 - [x] Our own LiveArea assets (2026-11-12): icon0 and startup "GH / VITA" lettering drawn by the user; bg.png and pic0.png are a procedural brick wall, orange-red under a blue-purple wash (pic0 with the icon lettering bottom right) from `tools/make-livearea-art.py` (earlier drafts: official GH1 art, removed; a procedural stage; an Unsplash photo). Packed via `FILE` entries in `vita/CMakeLists.txt`.
-- [ ] Credits screen shows the attribution line.
+- [x] Credits screen shows the attribution line (already in upstream's credits roll, `ui/select_panels.cpp` kGd01Credits). Start screen notice on the Vita: "GH Vita, based on GD-Engine" (patch 0030, 2026-11-13).
 - [ ] `CHANGES.md`, a VPK build script, GitHub release with source
 - [ ] ~~Offer the `patches/` to the maintainer~~ (not wanted, user 2026-11-12). List on VitaDB: later, the user's call.
 

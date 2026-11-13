@@ -45,7 +45,7 @@ Known limitations:
   (bloom, depth of field), no fade at the far end of the highway, no AI upscaling, HDR or
   MIDI guitars
 
-Still to do before a release: smoother movies and the attribution on the credits screen,
+Still to do before a release: smoother movies,
 then a VPK release with its source.
 Full record of every hardware run: [docs/port-plan.md](docs/port-plan.md).
 
