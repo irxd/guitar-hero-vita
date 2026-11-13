@@ -135,10 +135,11 @@ for d in $new_dumps; do
     fi
 done
 
-if [ "$launch" = 1 ] && [ "$keep" = 0 ]; then
-    vcmd "quit $TITLE_ID" || true
+if [ "$launch" = 1 ]; then
+    [ "$keep" = 0 ] && { vcmd "quit $TITLE_ID" || true; }
     # Let the Vita sleep again (nosleep stays on until turned off: the LED
-    # stayed green with the screen off, 2026-11-11).
+    # stayed green with the screen off, 2026-11-11). Also with --keep-running:
+    # the game was left open but the Vita must still be able to sleep (2026-11-13).
     vcmd "nosleep off" || true
 fi
 
