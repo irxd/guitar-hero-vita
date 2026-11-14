@@ -310,6 +310,7 @@ are not offered.
 | Found | Our patch | Bug | Status |
 |---|---|---|---|
 | 2026-11-14 | 0035 | Re-entering a screen with `retain_last_focus FALSE` (the store's menu) leaves the last visit's item highlighted beside the default one: `Panel::enter()` clears `focus_` before `setFocus`, so the old item's scene state stays Focused. | Fixed on the Vita (checked on hardware); not reported |
+| 2026-11-14 | none | Loading the disc logs `script: unknown object or function 'class'` and `... 'new'`: the script interpreter (`script.cpp`, `Interp::command`) has no `class`/`new` command. Same two lines on the unmodified desktop build; on the Vita since the first runs (2026-11-10). No visible effect found; what the skipped scripts would do is not known. | Upstream behaviour; not ours to fix; maybe mention |
 
 Reported earlier: #100 (script `mod` wrap, held menu direction after Bind to, GPU objects freed
 with their SceneRenderer), fixed upstream in gd01 1.1.13.
