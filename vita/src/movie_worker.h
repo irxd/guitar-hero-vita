@@ -10,6 +10,12 @@
 // (late ones are only decoded), queues up to kMaxReady of them, and sends
 // the movie's PCM straight to the SDL audio stream (thread safe).
 //
+// The RGBA conversion has its own thread on core 2 (2026-11-14): decode
+// (24-28 ms) plus conversion (7 ms) on one core was just over a picture's
+// 33 ms, so about 25 of 30 pictures a second were shown. The decoder copies a
+// picture's planes into a hand-off slot (it reuses its own buffers) and goes
+// on with the next one. Without that thread the worker converts inline.
+//
 // The disc is still read on the main thread only (GameData shares one file
 // handle): App feeds the file's bytes in chunks while wantBytes() asks for
 // them, and the worker's PssMovie reads from that buffer.
@@ -22,6 +28,8 @@
 #include <deque>
 #include <string>
 #include <vector>
+
+#include "video/mpeg2.h"
 
 namespace vita {
 
@@ -58,11 +66,15 @@ private:
     static constexpr size_t kMaxReady = 3;
 
     static int threadMain(void* self);
+    static int convertMain(void* self);
     void run();
+    void convertRun();
+    void finishDecoding();  // the decoder stopped: done_, or the converter drains first
     size_t read(uint8_t* dst, size_t n);  // the worker PssMovie's reader
 
     SDL_AudioStream* audio_;
     SDL_Thread* thread_ = nullptr;
+    SDL_Thread* convertThread_ = nullptr;  // null: the decoder converts inline
     SDL_Mutex* lock_ = nullptr;
     SDL_Condition* changed_ = nullptr;  // any state below changed
 
@@ -74,6 +86,13 @@ private:
     bool done_ = false;
     uint64_t target_ = 0;
     uint64_t readWaitNs_ = 0;  // time the worker waited for the main thread's bytes
+    // The hand-off slot: written by the decoder while !hasPending_, taken by
+    // the converter (under lock_) while hasPending_.
+    Mpeg2Frame pending_;
+    bool hasPending_ = false;
+    bool decodeDone_ = false;
+    uint64_t convertNs_ = 0, handoffWaitNs_ = 0;  // statistics, under lock_
+    uint32_t converted_ = 0;
     std::deque<Picture> ready_;
     std::vector<std::vector<uint8_t>> spare_;  // RGBA buffers for reuse
     std::string error_;

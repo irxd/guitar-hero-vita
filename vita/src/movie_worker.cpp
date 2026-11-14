@@ -28,6 +28,7 @@ struct Lock {
 };
 
 constexpr int kStackBytes = 1 << 20;
+constexpr int kConvertStackBytes = 64 << 10;
 // When late, still convert a picture at least every kMaxGap display frames, so
 // a decoder slower than real time shows a slower picture rate instead of
 // freezing on the first picture (hardware, 2026-11-10).
@@ -48,11 +49,22 @@ MovieWorker::MovieWorker(SDL_AudioStream* audio) : audio_(audio) {
     SDL_SetStringProperty(props, SDL_PROP_THREAD_CREATE_NAME_STRING, "gd01 movie");
     SDL_SetPointerProperty(props, SDL_PROP_THREAD_CREATE_USERDATA_POINTER, this);
     SDL_SetNumberProperty(props, SDL_PROP_THREAD_CREATE_STACKSIZE_NUMBER, kStackBytes);
+    // The converter first: the decoder reads convertThread_ when it starts.
+    SDL_PropertiesID cprops = SDL_CreateProperties();
+    SDL_SetPointerProperty(cprops, SDL_PROP_THREAD_CREATE_ENTRY_FUNCTION_POINTER, reinterpret_cast<void*>(&MovieWorker::convertMain));
+    SDL_SetStringProperty(cprops, SDL_PROP_THREAD_CREATE_NAME_STRING, "gd01 movie convert");
+    SDL_SetPointerProperty(cprops, SDL_PROP_THREAD_CREATE_USERDATA_POINTER, this);
+    SDL_SetNumberProperty(cprops, SDL_PROP_THREAD_CREATE_STACKSIZE_NUMBER, kConvertStackBytes);
+    convertThread_ = SDL_CreateThreadWithProperties(cprops);
+    SDL_DestroyProperties(cprops);
+    if (!convertThread_) SDL_Log("vita: movie: no convert thread (%s), converting on the decoder thread", SDL_GetError());
     thread_ = SDL_CreateThreadWithProperties(props);
     SDL_DestroyProperties(props);
     if (!thread_) {
+        Lock l(lock_);
         error_ = std::string("no movie thread: ") + SDL_GetError();
-        done_ = true;
+        decodeDone_ = done_ = true;  // the converter sees it and stops
+        SDL_BroadcastCondition(changed_);
     }
 }
 
@@ -63,6 +75,7 @@ MovieWorker::~MovieWorker() {
         SDL_BroadcastCondition(changed_);
     }
     if (thread_) SDL_WaitThread(thread_, nullptr);
+    if (convertThread_) SDL_WaitThread(convertThread_, nullptr);
     SDL_DestroyCondition(changed_);
     SDL_DestroyMutex(lock_);
 }
@@ -125,6 +138,54 @@ int MovieWorker::threadMain(void* self) {
     return 0;
 }
 
+int MovieWorker::convertMain(void* self) {
+    static_cast<MovieWorker*>(self)->convertRun();
+    return 0;
+}
+
+void MovieWorker::finishDecoding() {
+    Lock l(lock_);
+    decodeDone_ = true;
+    if (!convertThread_) done_ = true;  // else the converter sets it once drained
+    SDL_BroadcastCondition(changed_);
+}
+
+void MovieWorker::convertRun() {
+#if defined(__vita__)
+    // Core 2: free while a movie plays (the log thread and the song preview
+    // loader, both idle here); the decoder has core 1, the main thread core 0.
+    const int pinned = sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_2);
+    SDL_Log("vita: movie convert thread started (core 2: %s)", pinned < 0 ? "failed" : "ok");
+#endif
+    Mpeg2Frame work;
+    for (;;) {
+        std::vector<uint8_t> buffer;
+        {
+            Lock l(lock_);
+            while (!stop_ && !hasPending_ && !decodeDone_) SDL_WaitCondition(changed_, lock_);
+            if (stop_) return;
+            if (!hasPending_) {  // decoding ended and the slot is drained
+                done_ = true;
+                SDL_BroadcastCondition(changed_);
+                return;
+            }
+            std::swap(work, pending_);  // pending_ keeps work's old planes for the next copy
+            hasPending_ = false;
+            if (!spare_.empty()) buffer = std::move(spare_.back()), spare_.pop_back();
+            SDL_BroadcastCondition(changed_);  // the slot is free
+        }
+        const uint64_t t0 = SDL_GetTicksNS();
+        buffer.resize(size_t(work.width) * size_t(work.height) * 4);
+        mpeg2ToRgba(work, buffer.data(), size_t(work.width) * 4, !work.progressive);
+        const uint64_t ns = SDL_GetTicksNS() - t0;
+        Lock l(lock_);
+        convertNs_ += ns, ++converted_;
+        ready_.push_back(Picture{work.index, work.width, work.height, std::move(buffer)});
+        started_ = true;
+        SDL_BroadcastCondition(changed_);
+    }
+}
+
 size_t MovieWorker::read(uint8_t* dst, size_t n) {
     Lock l(lock_);
     if (!stop_ && inputPos_ == input_.size() && !inputEnd_) {
@@ -153,27 +214,32 @@ void MovieWorker::run() {
             pinned < 0 ? "failed" : "ok");
 #endif
     // Statistics, logged every kStatsNs.
-    uint64_t statStart = SDL_GetTicksNS(), decodeNs = 0, convertNs = 0;
-    uint32_t decoded = 0, converted = 0, maxLag = 0;
+    uint64_t statStart = SDL_GetTicksNS(), decodeNs = 0;
+    uint32_t decoded = 0, maxLag = 0;
     auto logStats = [&](bool last) {
         const uint64_t now = SDL_GetTicksNS();
         if (!last && now - statStart < kStatsNs) return;
-        uint64_t waitNs;
+        uint64_t waitNs, convertNs, handoffNs;
+        uint32_t converted;
         {
             Lock l(lock_);
             waitNs = readWaitNs_, readWaitNs_ = 0;
+            convertNs = convertNs_, convertNs_ = 0;
+            handoffNs = handoffWaitNs_, handoffWaitNs_ = 0;
+            converted = converted_, converted_ = 0;
         }
         uint32_t idct = 0, mc = 0, add = 0;
         takeMpeg2NeonCalls(idct, mc, add);
         const uint32_t skipped = takeSkippedBPictures();
         if (decoded) {
             SDL_Log("vita: movie: %u decoded (%.1f ms each, input wait %.1f; per picture %u IDCT, %u MC, %u block out), "
-                    "%u B skipped, %u converted (%.1f ms each) in %.1f s; up to %u frames late",
+                    "%u B skipped, %u converted (%.1f ms each, %s; hand-off wait %.1f) in %.1f s; up to %u frames late",
                     decoded, double(decodeNs) / decoded / 1e6, double(waitNs) / decoded / 1e6, idct / decoded,
                     mc / decoded, add / decoded, skipped, converted,
-                    converted ? double(convertNs) / converted / 1e6 : 0.0, double(now - statStart) / 1e9, maxLag);
+                    converted ? double(convertNs) / converted / 1e6 : 0.0, convertThread_ ? "core 2" : "inline",
+                    double(handoffNs) / decoded / 1e6, double(now - statStart) / 1e9, maxLag);
         }
-        statStart = now, decodeNs = convertNs = 0, decoded = converted = maxLag = 0;
+        statStart = now, decodeNs = 0, decoded = maxLag = 0;
     };
     uint64_t lastConverted = 0, lastDecoded = 0;
     bool skipB = false;
@@ -203,7 +269,6 @@ void MovieWorker::run() {
             if (!f) break;
             decodeNs += SDL_GetTicksNS() - t0, ++decoded;
             lastDecoded = f->index;
-            std::vector<uint8_t> buffer;
             {
                 Lock l(lock_);
                 const bool late = started_ && f->index < target_;
@@ -212,14 +277,33 @@ void MovieWorker::run() {
                 // next ones need them), no conversion, unless kMaxGap frames
                 // passed without one. The first one is always shown.
                 if (late && f->index < lastConverted + kMaxGap) continue;
+            }
+            lastConverted = f->index;
+            if (convertThread_) {
+                {
+                    Lock l(lock_);
+                    const uint64_t tw = SDL_GetTicksNS();
+                    while (!stop_ && hasPending_) SDL_WaitCondition(changed_, lock_);
+                    handoffWaitNs_ += SDL_GetTicksNS() - tw;
+                    if (stop_) break;
+                }
+                pending_ = *f;  // the converter leaves pending_ alone while !hasPending_
+                Lock l(lock_);
+                hasPending_ = true;
+                SDL_BroadcastCondition(changed_);
+                continue;
+            }
+            std::vector<uint8_t> buffer;
+            {
+                Lock l(lock_);
                 if (!spare_.empty()) buffer = std::move(spare_.back()), spare_.pop_back();
             }
             const uint64_t t1 = SDL_GetTicksNS();
             buffer.resize(size_t(f->width) * size_t(f->height) * 4);
             mpeg2ToRgba(*f, buffer.data(), size_t(f->width) * 4, !f->progressive);
-            convertNs += SDL_GetTicksNS() - t1, ++converted;
-            lastConverted = f->index;
+            const uint64_t ns = SDL_GetTicksNS() - t1;
             Lock l(lock_);
+            convertNs_ += ns, ++converted_;
             ready_.push_back(Picture{f->index, f->width, f->height, std::move(buffer)});
             started_ = true;
             SDL_BroadcastCondition(changed_);
@@ -229,9 +313,7 @@ void MovieWorker::run() {
         Lock l(lock_);
         error_ = ex.what();
     }
-    Lock l(lock_);
-    done_ = true;
-    SDL_BroadcastCondition(changed_);
+    finishDecoding();
 }
 
 }  // namespace vita
