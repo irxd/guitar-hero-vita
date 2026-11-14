@@ -1,5 +1,5 @@
 diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
-index 5d47366..34e83aa 100644
+index 1493bdc..176710a 100644
 --- a/gd-game-01/engine/src/app.cpp
 +++ b/gd-game-01/engine/src/app.cpp
 @@ -8,6 +8,7 @@
@@ -27,7 +27,7 @@ index 5d47366..34e83aa 100644
          d[k] = v;
  #else
  #if defined(GD01_STEAM_DECK)
-@@ -501,6 +503,11 @@ private:
+@@ -532,6 +534,11 @@ private:
          if (key == "touch") return Json::boolean(true);  // a phone may have no other control
  #endif
          auto def = enhancedDefaults().find(key);
@@ -78,7 +78,7 @@ index 9664604..f31a694 100644
      static const uint64_t kHoldNs = [] {
          if (const char* v = SDL_getenv("GD01_SHAKE_HOLD_MS")) {
 diff --git a/gd-game-01/engine/src/ui/select_panels.cpp b/gd-game-01/engine/src/ui/select_panels.cpp
-index 2c2c7fb..84f01b8 100644
+index c2766a6..39febc7 100644
 --- a/gd-game-01/engine/src/ui/select_panels.cpp
 +++ b/gd-game-01/engine/src/ui/select_panels.cpp
 @@ -3,6 +3,7 @@
@@ -99,7 +99,7 @@ index 2c2c7fb..84f01b8 100644
  
  namespace {
  
-@@ -1081,6 +1085,10 @@ private:
+@@ -1082,6 +1086,10 @@ private:
              {Kind::Check, "shake_whammy", "Shake for Whammy", true,
               "Shake the phone during a song to use the whammy bar: keep shaking to hold it, stop to let go. Whammy bends the "
               "note and fills Star Power faster on a Star Power note. A real whammy bar keeps working. Android only."},
@@ -110,7 +110,7 @@ index 2c2c7fb..84f01b8 100644
  #endif
              {Kind::Check, "touch", "Enable Touch Controls", true,
               "Play on a touch screen; also shows the on-screen buttons. In the menus a tap is a click. In a song, "
-@@ -1265,6 +1273,20 @@ private:
+@@ -1274,6 +1282,20 @@ private:
              {Kind::Check, "cheat_skull_crowd", "Skull Head Crowd", true,
               "The original cheat: everyone in the crowd has a skull for a head. Cannot be on with Monkey Head Crowd."},
          };

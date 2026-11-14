@@ -1,7 +1,7 @@
 # Changes from Guitar Dream Engine
 
 Based on Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine
-Forked from: https://github.com/mbracali/prj-gd-engine at `929477cafaa3675a309acf48c9e573cc563d906b` (2026-11-09), on 2026-11-10
+Forked from: https://github.com/mbracali/prj-gd-engine at `929477cafaa3675a309acf48c9e573cc563d906b` (2026-11-09), on 2026-11-10; rebased onto `6e76ea60262b4164cb886f5ce446dd7bcd540b80` (gd01 1.1.13) on 2026-11-14
 
 This repository does not carry a copy of the upstream sources. It holds a
 PS Vita build of `gd-game-01` made of:
@@ -64,6 +64,9 @@ platforms build exactly as upstream.
 | 2026-11-13 | `0031-vita-fast-movie-decode.patch` | `gd-game-01/engine/src/video/mpeg2.cpp` | PS Vita: movie blocks go through an integer inverse DCT written straight to the picture, and the RGBA conversion uses 16-bit fixed point (`vita/src/mpeg2_neon.cpp`). Not bit-exact: within one level of the exact paths (`tools/movie-fast-check.sh`); `GD01_VITA_EXACT_MOVIE=1` switches back. Intro movie on hardware: decode 50 to 27 ms a picture, conversion 21 to 7 ms, about 8 to about 25 pictures shown a second, no B pictures skipped |
 | 2026-11-13 | `0032-vita-movie-fullscreen.patch` | `gd-game-01/engine/src/app.cpp` | PS Vita: movies are stretched to the full 16:9 screen instead of shown 4:3 with bars at the sides |
 | 2026-11-13 | `0033-vita-port-texts.patch` | `gd-game-01/engine/src/ui/pc_strings.cpp`, `gd-game-01/engine/src/app.cpp` | PS Vita: the save and load messages that named GD-Engine use the port's wording ("GH Vita" or no name); the six GD-Engine developer loading tips are replaced by four of the port's own; the first screen's fallback name (no logo image) reads "GH Vita". The start screen notice and the credits keep the GD-Engine attribution |
+| 2026-11-14 | all patches | (rebase) | Rebased onto upstream `6e76ea60` (gd01 1.1.13). Patches 0022, 0025 and 0027 removed: upstream fixed the same bugs (#100: script `mod` wraps into [0, n), a release ends the held menu direction for either player, `~SceneRenderer` frees its GPU objects and `~App` releases `track2_` first). The other patches only had their context refreshed |
+| 2026-11-14 | `0021-vita-free-scene-resources.patch` | `gd-game-01/engine/src/render/scene_renderer.cpp` | Reduced to the Vita-only part: upstream's `~SceneRenderer` also frees the merged character meshes (patch 0019). `Renderer::vitaDeleteTexture` / `vitaDeleteMesh` removed in favour of upstream's `deleteTexture` / `deleteMesh` |
+| 2026-11-14 | `0034-vita-local-graphics-default.patch` | `gd-game-01/engine/src/app.cpp` | PS Vita: the graphics backend default stays `local` (vitaGL, the Vita's only backend). Upstream's new Vulkan default for platforms other than macOS / Android would otherwise include the Vita, and its one-time enhanced.json migration would switch `local` to `vulkan` |
 | 2026-11-11 | `0020-vita-async-song-preview.patch` (updated) | `gd-game-01/engine/src/data/iso9660.h`, `gd-game-01/engine/src/data/iso9660.cpp`, `gd-game-01/engine/src/data/vgs.cpp` | PS Vita: `RandomFile::read` uses `sceIoPread` (positional, 4 MB pieces) instead of fseek + fread: ~3x faster disc reads, safe from the preview thread without a lock |
 
 ## New files

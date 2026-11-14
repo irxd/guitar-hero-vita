@@ -1,5 +1,5 @@
 diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
-index 4f53469..1173acc 100644
+index 1dfee18..a0842ff 100644
 --- a/gd-game-01/engine/src/app.cpp
 +++ b/gd-game-01/engine/src/app.cpp
 @@ -5,6 +5,8 @@
@@ -25,21 +25,20 @@ index 4f53469..1173acc 100644
          d[k] = v;
  #else
  #if defined(GD01_STEAM_DECK)
-@@ -186,6 +191,13 @@ std::map<std::string, Json> profileValues(bool deck) {
-     return d;
- }
- 
+@@ -197,6 +202,12 @@ constexpr const char* kDefaultGraphicsBackend = "local";
+ // Linux (GDALL-050); a file without it (or older) has its "local" graphics
+ // backend (the old default) turned into the new default once.
+ constexpr int kEnhancedVersion = 2;
 +#if defined(__vita__)
 +// PS Vita: Max FPS / Performance Mode as a frame cap (0: unlimited); Notes Only runs at 60.
 +int vitaFrameCap(const std::string& v) {
 +    return v == "unlimited" ? 0 : v == "notes" ? 60 : std::clamp(std::atoi(v.c_str()), 30, 1000);
 +}
 +#endif
-+
+ 
  // Enhanced Settings defaults (keys of enhanced.json): the build's profile
  // over the rest. XInput controllers and Rock Band guitars are always on (no
- // setting since 1.1.7).
-@@ -219,7 +231,13 @@ const std::map<std::string, Json>& enhancedDefaults() {
+@@ -234,7 +245,13 @@ const std::map<std::string, Json>& enhancedDefaults() {
  const std::map<std::string, std::set<std::string>>& enhancedChoices() {
      static const std::map<std::string, std::set<std::string>> c = {
          {"screen_mode", {"windowed", "fullscreen", "borderless"}},
@@ -53,7 +52,7 @@ index 4f53469..1173acc 100644
          {"internal_res", {"448", "480", "720", "800", "900", "1080", "1440", "2160"}},
          {"antialiasing", {"none", "fxaa", "ssaa", "taa"}},
          {"ai_upscaling", {"none", "fsr1", "fsr31", "dlss4", "dlss5"}},  // a saved "fsr4" (removed) loads as none
-@@ -421,6 +439,12 @@ private:
+@@ -446,6 +463,12 @@ private:
      Highway highway_;
      std::unique_ptr<TrackRenderer> track_;  // the original highway, when its scene loads
      std::unique_ptr<VenueRenderer> venue_;  // the song's venue, when it loads
@@ -66,7 +65,7 @@ index 4f53469..1173acc 100644
      // [I] Enhanced Settings' backdrop: a medium venue (big_club) posed once and
      // frozen, filmed close on the singer's microphone. Loaded at startup and
      // kept, so the menu opens on the next frame (universal_mechanisms.md).
-@@ -919,7 +943,12 @@ void App::startSong(size_t index, ControllerMode mode) {
+@@ -956,7 +979,12 @@ void App::startSong(size_t index, ControllerMode mode) {
          }
          // $cheat_crowd (crowd.dta finish_loading): monkey (1) or skull (2) heads.
          CrowdRenderer::setCheatCrowd(ui_ ? ui_->interp().var("cheat_crowd").integerValue() : 0);
@@ -79,7 +78,7 @@ index 4f53469..1173acc 100644
              try {
                  // FUN_00282870 (final_win): the career's final song (above Easy, as the game over below).
                  bool finalSong = ui_ && ui_->interp().send("meta", "get", {Value::symbol("mode")}).str() == "career" &&
-@@ -2044,7 +2073,13 @@ void App::applyEnhanced() {
+@@ -2112,7 +2140,13 @@ void App::applyEnhanced() {
      setParticleRate(enhanced("particles").str() == "2x" ? 2.0f : 1.0f);
      renderer_.setUiEnhance(enhancedOn("sharp_ui"));
      renderer_.setInternalHeight(std::clamp(enhancedInt("internal_res"), 0, 4320));
@@ -93,7 +92,7 @@ index 4f53469..1173acc 100644
      // Post-processing of the 3D game frame (render/post_fx.h). FSR 3.1 and
      // DLSS 4 run in Vulkan next to the GL renderer (render/vk_upscaler.h) and
      // fall back to FSR 1; DLSS 5 is not available. Upscalers output at the
-@@ -2114,7 +2149,11 @@ void App::applyEnhanced() {
+@@ -2183,7 +2217,11 @@ void App::applyEnhanced() {
          }
          if (!ok) SDL_Log("enhanced settings: screen mode %s: %s", mode.c_str(), SDL_GetError());
          screenModeApplied_ = mode;
@@ -105,7 +104,7 @@ index 4f53469..1173acc 100644
      }
  }
  
-@@ -2513,7 +2552,11 @@ void App::frame() {
+@@ -2601,7 +2639,11 @@ void App::frame() {
              GD01_VITA_PHASE("venue update");
              if (venue_ && screen_ == Screen::Playing) updateVenue(t);
              GD01_VITA_PHASE("venue draw");
@@ -118,7 +117,7 @@ index 4f53469..1173acc 100644
                  venue_->setAspect(renderer_.beginWide(21.0f / 9.0f));
                  const bool post = renderer_.beginScene();  // Enhanced Settings post-processing, when on
 diff --git a/gd-game-01/engine/src/render/renderer.cpp b/gd-game-01/engine/src/render/renderer.cpp
-index 0861043..db05ad9 100644
+index 0c00708..a12dc83 100644
 --- a/gd-game-01/engine/src/render/renderer.cpp
 +++ b/gd-game-01/engine/src/render/renderer.cpp
 @@ -1,8 +1,10 @@
@@ -132,7 +131,7 @@ index 0861043..db05ad9 100644
  #include "vita_profile.h"  // the Vita port's vita/src: frame phase timing
  #endif
  
-@@ -398,6 +400,14 @@ void Renderer::createFontTexture() {
+@@ -424,6 +426,14 @@ void Renderer::createFontTexture() {
  // Headless drivers are not paced.
  void Renderer::setFrameCap(int fps) {
      if (core_) return core_->setFrameCap(fps);
@@ -148,7 +147,7 @@ index 0861043..db05ad9 100644
          SDL_GL_SetSwapInterval(0);
          paceNs_ = 0, nextFrameNs_ = 0;
 diff --git a/gd-game-01/engine/src/ui/select_panels.cpp b/gd-game-01/engine/src/ui/select_panels.cpp
-index c9c918a..2c2c7fb 100644
+index d2bf6d4..c2766a6 100644
 --- a/gd-game-01/engine/src/ui/select_panels.cpp
 +++ b/gd-game-01/engine/src/ui/select_panels.cpp
 @@ -1,6 +1,8 @@
@@ -160,7 +159,7 @@ index c9c918a..2c2c7fb 100644
  #include "ui/select_panels.h"
  
  #include <SDL3/SDL.h>
-@@ -1146,10 +1148,20 @@ private:
+@@ -1147,10 +1149,20 @@ private:
               "Balanced (1.7x) or Performance (2x, the fastest). On a 1440p screen: 960p, 847p, 720p. Native draws "
               "at the screen's resolution and uses DLSS 4 or FSR 3.1 only as anti-aliasing (DLAA with DLSS 4).",
               {{"performance", "Performance"}, {"balanced", "Balanced"}, {"quality", "Quality"}, {"native", "Native (DLAA)"}}, "ai_upscaling"},

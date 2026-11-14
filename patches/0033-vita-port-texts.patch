@@ -1,16 +1,16 @@
 diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
-index fc11207..3200d16 100644
+index 40b13e1..011a487 100644
 --- a/gd-game-01/engine/src/app.cpp
 +++ b/gd-game-01/engine/src/app.cpp
-@@ -13,6 +13,7 @@
- // Modified by irxd on 2026-11-12: PS Vita: the second highway freed before the renderer shuts down (run).
+@@ -12,6 +12,7 @@
+ // Modified by irxd on 2026-11-12: PS Vita: Enhanced Settings Button Layout (1 or 2).
  // Modified by irxd on 2026-11-12: PS Vita: at 60 FPS 4 3D crowd members (8 at 30) and the cut-outs refreshed a third a frame.
  // Modified by irxd on 2026-11-13: PS Vita: movies stretched to the full screen (movieFrame).
 +// Modified by irxd on 2026-11-13: PS Vita: the first screen's fallback name reads GH Vita (drawLogo).
  #include "app.h"
  
  #include <SDL3/SDL.h>
-@@ -2378,7 +2379,11 @@ void App::drawLogo() {
+@@ -2445,7 +2446,11 @@ void App::drawLogo() {
          logoTexture_ = appIconImage(icon) ? renderer_.createTexture(icon) : 0;
      }
      if (logoTexture_ > 0) renderer_.image(logoTexture_, kScreenW / 2 - 100, 70, 200, 200, {255, 255, 255, 255}, Blend::Alpha);

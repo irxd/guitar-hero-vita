@@ -1,5 +1,5 @@
 diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
-index a3f3760..d9f2692 100644
+index 2f6e986..cfc6392 100644
 --- a/gd-game-01/engine/src/app.cpp
 +++ b/gd-game-01/engine/src/app.cpp
 @@ -2,6 +2,7 @@
@@ -10,7 +10,7 @@ index a3f3760..d9f2692 100644
  #include "app.h"
  
  #include <SDL3/SDL.h>
-@@ -910,6 +911,12 @@ void App::startSong(size_t index, ControllerMode mode) {
+@@ -947,6 +948,12 @@ void App::startSong(size_t index, ControllerMode mode) {
                  // FUN_00282870 (final_win): the career's final song (above Easy, as the game over below).
                  bool finalSong = ui_ && ui_->interp().send("meta", "get", {Value::symbol("mode")}).str() == "career" &&
                                   difficulty_ > 0 && campaign_ && campaign_->finalSong(difficulty_, info.id);

@@ -1,14 +1,14 @@
 # gd01 → PS Vita: port plan
 
-Last updated: 2026-11-10
+Last updated: 2026-11-14
 
 ## Upstream pin
 
 | | |
 |---|---|
 | Repo | https://github.com/mbracali/prj-gd-engine |
-| Commit | `929477cafaa3675a309acf48c9e573cc563d906b` (2026-11-09, "Merge pull request #75 from mbracali/develop") |
-| gd-game-01 version | 1.1.11 (`game-info.yaml`: ready_to_play, completeness 0.99) |
+| Commit | `6e76ea60262b4164cb886f5ce446dd7bcd540b80` (2026-11-13, "Merge pull request #110 from mbracali/develop"); before 2026-11-14: `929477ca` |
+| gd-game-01 version | 1.1.13 (release 1.1.15) |
 | Upstream Vita study | `docs/spikes/study_ps_vita.md` (2026-10-28) |
 | Upstream backlog | GDALL-024 "PS Vita (gd01 only, homebrew VPK)", not started |
 
@@ -330,3 +330,4 @@ Alternatives:
 - 2026-11-12: Enhanced Settings trimmed for the Vita (~50 rows to ~20); Shake for Whammy on the motion sensor (patch 0023).
 - 2026-11-12: Upstream issue posted as irxd (the user asked): https://github.com/mbracali/prj-gd-engine/issues/100, offering three general fixes (script `mod` wrap, held menu direction after a rebind, GPU objects freed with their SceneRenderer). Prepared on a local branch `fix/gd-game-01/general-fixes` (worktree `/root/gde-pr` in WSL, from `develop` b3577a1); `--selftest` all charts fully hit. A PR only if the owner wants it; no fork yet.
 - 2026-11-14: #100 resolved by the owner, no PR needed: upstream commit `2c506cb5` on `main` (gd01 1.1.13, release 1.1.15; GD01-319..321) ports all three fixes with self-tests. The rebind fix differs from ours: it clears the other player's held direction only when it isn't the releasing player's own, so two players holding a direction still work. The scene fix frees GPU objects on the local backend and releases `track2_` before the renderer. **When we bump the pin** (still `929477ca`), drop patches 0022 (`mod` wrap) and 0025 (held release) and check 0021 (free scene resources) and 0027 (free second highway) against upstream's version. The WSL branch `fix/gd-game-01/general-fixes` (`/root/gde-pr`) is no longer needed.
+- 2026-11-14: Pin bumped to `6e76ea60` (gd01 1.1.13). Patches 0022 / 0025 / 0027 dropped (upstream's #100 fixes), 0021 reduced to freeing the merged character meshes, the rest refreshed (0015 and the header lines conflicted, nothing else). New patch 0034: upstream made Vulkan the default backend everywhere except macOS / Android, which included the Vita; it stays `local`. The VPK builds with 0 warnings. **[verify]** on hardware: menus, a song, six songs in a row (heap stable), Gamepads Bind to, store scrolling.

@@ -1,16 +1,16 @@
 diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
-index a21057c..bb484ea 100644
+index 1a6d5aa..7de1289 100644
 --- a/gd-game-01/engine/src/app.cpp
 +++ b/gd-game-01/engine/src/app.cpp
-@@ -11,6 +11,7 @@
+@@ -10,6 +10,7 @@
+ // Modified by irxd on 2026-11-11: PS Vita: song previews read only their window of the .vgs, on a worker thread (songPreview).
  // Modified by irxd on 2026-11-12: PS Vita: settings the Vita does not show keep their defaults (enhanced); Shake for Whammy off by default.
  // Modified by irxd on 2026-11-12: PS Vita: Enhanced Settings Button Layout (1 or 2).
- // Modified by irxd on 2026-11-12: PS Vita: the second highway freed before the renderer shuts down (run).
 +// Modified by irxd on 2026-11-12: PS Vita: at 60 FPS 4 3D crowd members (8 at 30) and the cut-outs refreshed a third a frame.
  #include "app.h"
  
  #include <SDL3/SDL.h>
-@@ -451,7 +452,8 @@ private:
+@@ -474,7 +475,8 @@ private:
      // PS Vita Performance Mode > Notes Only: the next song loads no venue,
      // and one already loaded is not drawn (the highway on black).
      bool vitaNotesOnly_ = false;
@@ -20,7 +20,7 @@ index a21057c..bb484ea 100644
  #endif
      // [I] Enhanced Settings' backdrop: a medium venue (big_club) posed once and
      // frozen, filmed close on the singer's microphone. Loaded at startup and
-@@ -2139,7 +2141,12 @@ void App::applyEnhanced() {
+@@ -2205,7 +2207,12 @@ void App::applyEnhanced() {
  #if defined(__vita__)
      renderer_.setFrameCap(vitaFrameCap(enhanced("max_fps").str()));
      vitaNotesOnly_ = enhanced("max_fps").str() == "notes";

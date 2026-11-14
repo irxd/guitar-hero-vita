@@ -1,5 +1,5 @@
 diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
-index 1173acc..5d47366 100644
+index a0842ff..1493bdc 100644
 --- a/gd-game-01/engine/src/app.cpp
 +++ b/gd-game-01/engine/src/app.cpp
 @@ -7,6 +7,7 @@
@@ -18,7 +18,7 @@ index 1173acc..5d47366 100644
  #include "vita_profile.h"  // the Vita port's vita/src: frame phase timing
  #define GD01_VITA_PHASE(name) vita::profilePhase(name)
  #else
-@@ -574,6 +576,15 @@ private:
+@@ -609,6 +611,15 @@ private:
      void playerEvent(const PlayerEvent& ev, int player = 0);
      void pollMenuMusic();
      bool menuMusicOn_ = false, previewing_ = false;
@@ -34,7 +34,7 @@ index 1173acc..5d47366 100644
      std::string menuLoop_;  // the metamusic loop picked when the meta panel loaded
      // meta play_movie (FUN_0024edf8): one picture per NTSC frame, 48 kHz PCM on its
      // own stream, everything else frozen and silent; Green / X / Start skip.
-@@ -1572,10 +1583,35 @@ void App::endMovie() {
+@@ -1637,10 +1648,35 @@ void App::endMovie() {
  void App::songPreview(const std::string& id) {
      auto it = std::find_if(songs_.begin(), songs_.end(), [&](const SongInfo& s) { return s.id == id; });
      if (id.empty() || it == songs_.end()) {
@@ -70,7 +70,7 @@ index 1173acc..5d47366 100644
      try {
          auto vgs = std::make_unique<VgsStream>(data_->read(it->audioPath));
          std::vector<Mixer::Track> tracks(vgs->channels());
-@@ -1588,8 +1624,24 @@ void App::songPreview(const std::string& id) {
+@@ -1653,8 +1689,24 @@ void App::songPreview(const std::string& id) {
      } catch (const std::exception& ex) {
          SDL_Log("preview %s: %s", id.c_str(), ex.what());
      }
@@ -95,7 +95,7 @@ index 1173acc..5d47366 100644
  // Metamusic (FUN_0020dcd8 / FUN_0020e588): when the meta panel loads it
  // picks one of config/synth.dta (metamusic (volume 0.6) (music meta_loop1a
  // ... meta_loop1g)) at random and plays it looping; meta_music_stop /
-@@ -2624,6 +2676,9 @@ void App::frame() {
+@@ -2711,6 +2763,9 @@ void App::frame() {
          float dt = uiTicks_ ? float(now - uiTicks_) / 1e6f : 16.0f;
          uiTicks_ = now;
          ui_->update(std::min(dt, 100.0f));

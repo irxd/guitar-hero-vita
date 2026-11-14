@@ -1,4 +1,5 @@
 diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
+index 31f3c36..2f6e986 100644
 --- a/gd-game-01/engine/src/app.cpp
 +++ b/gd-game-01/engine/src/app.cpp
 @@ -1,6 +1,7 @@
@@ -9,7 +10,7 @@ diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
  #include "app.h"
  
  #include <SDL3/SDL.h>
-@@ -1719,6 +1720,13 @@
+@@ -1785,6 +1786,13 @@ constexpr float kBokehBlur[5] = {0, 2.0f, 3.0f, 4.0f, 4.8f};
  void App::loadBackdrop() {
      if (backdropTried_ || !data_) return;
      backdropTried_ = true;

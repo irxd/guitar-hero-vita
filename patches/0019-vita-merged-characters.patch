@@ -1,5 +1,5 @@
 diff --git a/gd-game-01/engine/src/render/renderer.cpp b/gd-game-01/engine/src/render/renderer.cpp
-index db05ad9..b79b0df 100644
+index a12dc83..cc0a706 100644
 --- a/gd-game-01/engine/src/render/renderer.cpp
 +++ b/gd-game-01/engine/src/render/renderer.cpp
 @@ -2,6 +2,7 @@
@@ -20,7 +20,7 @@ index db05ad9..b79b0df 100644
      uLit_ = gl::glGetUniformLocation(program_, "uLit");
      uMatFlags_ = gl::glGetUniformLocation(program_, "uMatFlags");
      uColorScale_ = gl::glGetUniformLocation(program_, "uColorScale");
-@@ -986,6 +990,19 @@ void Renderer::drawMesh(int mesh, const float* mvp, const RenderState& st) {
+@@ -1013,6 +1017,19 @@ void Renderer::drawMesh(int mesh, const float* mvp, const RenderState& st) {
      gl::glUniform1f(uCutout_, st.alphaCutout ? 0.5f : -1.0f);
      gl::glUniform2f(uUvOffset_, st.uvOffset[0], st.uvOffset[1]);
      gl::glUniform4fv(uTint_, 1, st.tint);
@@ -41,7 +41,7 @@ index db05ad9..b79b0df 100644
          gl::glUniform1i(uSkin_, 1);
          gl::glUniformMatrix4fv(uBones_, 4, GL_FALSE, st.bones);
 diff --git a/gd-game-01/engine/src/render/renderer.h b/gd-game-01/engine/src/render/renderer.h
-index ed2bb66..3bc0b6d 100644
+index 181a9e0..7d6eb07 100644
 --- a/gd-game-01/engine/src/render/renderer.h
 +++ b/gd-game-01/engine/src/render/renderer.h
 @@ -1,5 +1,6 @@
@@ -51,7 +51,7 @@ index ed2bb66..3bc0b6d 100644
  #pragma once
  
  #include <SDL3/SDL.h>
-@@ -145,7 +146,18 @@ public:
+@@ -154,7 +155,18 @@ public:
          float texU[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1}, texO[2] = {0.5f, 0.5f};
          float eye[3] = {0, 0, 0}, camRight[3] = {1, 0, 0}, camUp[3] = {0, 0, 1};
          int texDecal = 0;  // TFX DECAL: 1 the texture alone, 2 texture colour with the fragment alpha (pass 0)
@@ -70,7 +70,7 @@ index ed2bb66..3bc0b6d 100644
      void drawMesh(int mesh, const float* mvp, const RenderState& state);
  
      // Off-screen colour + depth targets. createRenderTarget returns a texture
-@@ -208,6 +220,9 @@ private:
+@@ -225,6 +237,9 @@ private:
      struct GpuMesh { unsigned vao = 0, vbo = 0, ibo = 0; int count = 0; };
      std::vector<GpuMesh> meshes_{GpuMesh{}};
      int uCutout_ = -1, uUvOffset_ = -1, uTint_ = -1;
@@ -81,7 +81,7 @@ index ed2bb66..3bc0b6d 100644
      int uLit_ = -1, uModel_ = -1, uAmbient_ = -1, uLightCount_ = -1, uLightDir_ = -1, uLightColor_ = -1;
  
 diff --git a/gd-game-01/engine/src/render/scene_renderer.cpp b/gd-game-01/engine/src/render/scene_renderer.cpp
-index 0265696..21e21fb 100644
+index 9269c22..10da9c3 100644
 --- a/gd-game-01/engine/src/render/scene_renderer.cpp
 +++ b/gd-game-01/engine/src/render/scene_renderer.cpp
 @@ -2,6 +2,7 @@
@@ -100,7 +100,7 @@ index 0265696..21e21fb 100644
  #endif
  
  #include <SDL3/SDL.h>
-@@ -312,6 +314,7 @@ int SceneRenderer::texture(const std::string& name, bool repeat) {
+@@ -326,6 +328,7 @@ int SceneRenderer::texture(const std::string& name, bool repeat) {
  void SceneRenderer::draw(const std::string& name, const Mat4& viewProj, const Mat4& model, const EnvironObj* env) {
      env_ = env;
  #if defined(__vita__)
@@ -108,7 +108,7 @@ index 0265696..21e21fb 100644
      if (const SceneObject* o = vitaFind(name)) drawObject(*o, viewProj, model, 0);
  #else
      if (const SceneObject* o = scene_.find(name)) drawObject(*o, viewProj, model, 0);
-@@ -366,6 +369,9 @@ void SceneRenderer::setMatFlags(Renderer::RenderState& st, const MatObj* mat) co
+@@ -380,6 +383,9 @@ void SceneRenderer::setMatFlags(Renderer::RenderState& st, const MatObj* mat) co
  }
  
  const Lighting* SceneRenderer::lightingFor(const MatObj* mat) {
@@ -118,7 +118,7 @@ index 0265696..21e21fb 100644
      if (!mat || !env_) return nullptr;
      if (!(mat->useEnviron || !mat->vertAmb)) return nullptr;
      if (!mat->stages.empty() && mat->stages[0].blend == 1) return nullptr;
-@@ -374,7 +380,12 @@ const Lighting* SceneRenderer::lightingFor(const MatObj* mat) {
+@@ -388,7 +394,12 @@ const Lighting* SceneRenderer::lightingFor(const MatObj* mat) {
      l.count = 0;
      if (!mat->useEnviron) return &l;
      const LightObj* point = nullptr;
@@ -131,7 +131,7 @@ index 0265696..21e21fb 100644
  #if defined(__vita__)
      VitaLights& vl = vitaLights_[env_];
      if (vl.objs.size() != env_->lights.size() || std::find(vl.objs.begin(), vl.objs.end(), nullptr) != vl.objs.end()) {
-@@ -477,10 +488,196 @@ bool SceneRenderer::vitaOutside(const DrawMesh& dm, const Mat4& mvp) {
+@@ -491,10 +502,196 @@ bool SceneRenderer::vitaOutside(const DrawMesh& dm, const Mat4& mvp) {
          }
      return false;
  }
@@ -328,7 +328,7 @@ index 0265696..21e21fb 100644
      if (o.environment) {
          env_ = o.environment.get();
          return;
-@@ -529,7 +726,11 @@ void SceneRenderer::drawObject(const SceneObject& o, const Mat4& viewProj, const
+@@ -543,7 +740,11 @@ void SceneRenderer::drawObject(const SceneObject& o, const Mat4& viewProj, const
          }
  #endif
          Renderer::RenderState st = liveState(*dm);
@@ -340,7 +340,7 @@ index 0265696..21e21fb 100644
          setMatFlags(st, dm->mat);
          st.model = w.m.data();
          // A negative scale (mirrored tiles) reverses the winding.
-@@ -538,13 +739,31 @@ void SceneRenderer::drawObject(const SceneObject& o, const Mat4& viewProj, const
+@@ -552,13 +753,31 @@ void SceneRenderer::drawObject(const SceneObject& o, const Mat4& viewProj, const
              float det = m[0] * (m[5] * m[10] - m[9] * m[6]) - m[4] * (m[1] * m[10] - m[9] * m[2]) + m[8] * (m[1] * m[6] - m[5] * m[2]);
              st.mirrored = det < 0;
          }
@@ -373,7 +373,7 @@ index 0265696..21e21fb 100644
          drawPasses(*dm, mvp.m.data(), st);
          drawChildren(o.mesh->draw, viewProj, model, depth);
 diff --git a/gd-game-01/engine/src/render/scene_renderer.h b/gd-game-01/engine/src/render/scene_renderer.h
-index e0aa658..4282e76 100644
+index fd25393..1b8902c 100644
 --- a/gd-game-01/engine/src/render/scene_renderer.h
 +++ b/gd-game-01/engine/src/render/scene_renderer.h
 @@ -2,6 +2,7 @@
@@ -384,7 +384,7 @@ index e0aa658..4282e76 100644
  #pragma once
  
  #include <array>
-@@ -218,4 +219,57 @@ private:
+@@ -231,4 +232,57 @@ private:
      const EnvironObj* env_ = nullptr;  // drawing an Environ selects it for what follows
      Lighting lighting_;
      float bones_[64];

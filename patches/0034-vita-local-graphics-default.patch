@@ -1,0 +1,33 @@
+diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
+index 011a487..aa96a15 100644
+--- a/gd-game-01/engine/src/app.cpp
++++ b/gd-game-01/engine/src/app.cpp
+@@ -13,6 +13,7 @@
+ // Modified by irxd on 2026-11-12: PS Vita: at 60 FPS 4 3D crowd members (8 at 30) and the cut-outs refreshed a third a frame.
+ // Modified by irxd on 2026-11-13: PS Vita: movies stretched to the full screen (movieFrame).
+ // Modified by irxd on 2026-11-13: PS Vita: the first screen's fallback name reads GH Vita (drawLogo).
++// Modified by irxd on 2026-11-14: PS Vita: the graphics backend default stays local (upstream's new Vulkan default left out).
+ #include "app.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -201,8 +202,9 @@ std::map<std::string, Json> profileValues(bool deck) {
+ }
+ 
+ // The graphics backend a fresh start uses (GDALL-050, owner 11-13): Vulkan on
+-// Windows and Linux (Steam Deck too), local on macOS and Android.
+-#if !defined(__APPLE__) && !defined(__ANDROID__)
++// Windows and Linux (Steam Deck too), local on macOS and Android (and the
++// PS Vita: vitaGL is its only backend).
++#if !defined(__APPLE__) && !defined(__ANDROID__) && !defined(__vita__)
+ constexpr const char* kDefaultGraphicsBackend = "vulkan";
+ #else
+ constexpr const char* kDefaultGraphicsBackend = "local";
+@@ -3225,7 +3227,7 @@ int inputSelfTest() {
+     // GDCORE-006 / GDALL-050: graphics default Vulkan on Windows / Linux, local
+     // elsewhere; audio default local; no Mode button sets them; a value this
+     // build does not offer is dropped at load.
+-#if !defined(__APPLE__) && !defined(__ANDROID__)
++#if !defined(__APPLE__) && !defined(__ANDROID__) && !defined(__vita__)
+     const std::string wantGraphics = "vulkan";
+ #else
+     const std::string wantGraphics = "local";
