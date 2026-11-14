@@ -12,7 +12,7 @@ set -euo pipefail
 export VITASDK="${VITASDK:-/usr/local/vitasdk}"
 export PATH="$VITASDK/bin:$PATH"
 TOOL="${TOOL:-/root/vita-src/vita-parse-core}"
-ELF="${ELF:-/root/build/gd01-vita/gd01}"
+ELF="${ELF:-/root/build/gd01-vita/ghvita}"
 DUMP="${1:?usage: parse-core.sh <psp2dmp file>}"
 
 if [ ! -f "$TOOL/main.py" ]; then

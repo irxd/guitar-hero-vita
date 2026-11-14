@@ -6,7 +6,7 @@ index cd7e983..1dfee18 100644
  // Modified by irxd on 2026-11-10: PS Vita: no Enhanced Settings backdrop venue (loadBackdrop).
  // Modified by irxd on 2026-11-10: PS Vita: free the old venue before loading the next (startSong).
  // Modified by irxd on 2026-11-10: PS Vita: movies decoded on a worker thread (startMovie, movieFrame, endMovie).
-+// Modified by irxd on 2026-11-10: PS Vita: frame phase timing marks for gd01.log (frame).
++// Modified by irxd on 2026-11-10: PS Vita: frame phase timing marks for ghvita.log (frame).
  #include "app.h"
  
  #include <SDL3/SDL.h>

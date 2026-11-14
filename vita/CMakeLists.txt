@@ -14,7 +14,7 @@ if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
   endif()
 endif()
 
-project(gd01_vita VERSION 1.1.11 LANGUAGES C CXX)
+project(ghvita VERSION 1.1.11 LANGUAGES C CXX)
 include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
 
 set(VITA_APP_NAME "GH Vita")
@@ -75,28 +75,28 @@ set(GD01_SOURCES
 )
 list(TRANSFORM GD01_SOURCES PREPEND "${GD01_SRC}/")
 
-add_executable(gd01 ${GD01_SOURCES} src/vita_platform.cpp src/glsl_es100.cpp src/texture_palette.cpp src/movie_worker.cpp src/preview_loader.cpp src/mpeg2_neon.cpp)
+add_executable(ghvita ${GD01_SOURCES} src/vita_platform.cpp src/glsl_es100.cpp src/texture_palette.cpp src/movie_worker.cpp src/preview_loader.cpp src/mpeg2_neon.cpp)
 # SDL calls the Vita layer (src/vita_platform.cpp) takes over, so the
 # upstream sources stay unmodified.
 foreach(sym SDL_CreateWindow SDL_GL_CreateContext SDL_GL_DestroyContext SDL_GL_MakeCurrent
             SDL_GL_SwapWindow SDL_GL_SetSwapInterval SDL_GL_GetProcAddress SDL_GL_ExtensionSupported
             SDL_GetBasePath SDL_GetPrefPath SDL_SetLogOutputFunction)
-  target_link_options(gd01 PRIVATE "-Wl,--wrap=${sym}")
+  target_link_options(ghvita PRIVATE "-Wl,--wrap=${sym}")
 endforeach()
 # vita/src is on the path for the patches' Vita headers (e.g. movie_worker.h in patch 0006).
-target_include_directories(gd01 PRIVATE ${GD01_SRC} ${GD01_GEN} ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_compile_definitions(gd01 PRIVATE GD01_DLSS=0 GD01_VITA=1 GD01_VERSION="${PROJECT_VERSION}")
+target_include_directories(ghvita PRIVATE ${GD01_SRC} ${GD01_GEN} ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_compile_definitions(ghvita PRIVATE GD01_DLSS=0 GD01_VITA=1 GD01_VERSION="${PROJECT_VERSION}")
 # Our own vitaGL build (tools/build-vitagl.sh: extra speed options) when
 # given, else the SDK's.
 set(GD01_VITAGL_DIR "" CACHE PATH "Folder with a libvitaGL.a + vitaGL.h from tools/build-vitagl.sh")
 if(GD01_VITAGL_DIR)
   set(GD01_VITAGL "${GD01_VITAGL_DIR}/libvitaGL.a")
-  target_include_directories(gd01 BEFORE PRIVATE ${GD01_VITAGL_DIR})
+  target_include_directories(ghvita BEFORE PRIVATE ${GD01_VITAGL_DIR})
   message(STATUS "vitaGL: ${GD01_VITAGL}")
 else()
   set(GD01_VITAGL vitaGL)
 endif()
-target_link_libraries(gd01 PRIVATE
+target_link_libraries(ghvita PRIVATE
   gdcore_render gdcore_audio
   SDL3::SDL3
   ${GD01_VITAGL} vitashark SceShaccCgExt mathneon taihen_stub kubridge_stub
@@ -117,7 +117,7 @@ foreach(file symbol IN ZIP_LISTS GD01_ICON_FILES GD01_ICON_SYMBOLS)
             -DNAME=${symbol} -P ${GD01_ENGINE}/cmake/embed_file.cmake
     DEPENDS ${GD01_ENGINE}/res/${file}.png ${GD01_ENGINE}/cmake/embed_file.cmake
     VERBATIM)
-  target_sources(gd01 PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/${file}_data.cpp)
+  target_sources(ghvita PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/${file}_data.cpp)
 endforeach()
 
 # Extended memory mode (ATTRIBUTE2=12): about 100 MB more main RAM for the
@@ -126,18 +126,18 @@ endforeach()
 set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
 # Allocation failures (src/vita_platform.cpp logs them with their size).
 # One-shot arguments from ux0:data/ghvita/args.txt (src/vita_platform.cpp).
-target_link_options(gd01 PRIVATE "-Wl,--wrap=main")
+target_link_options(ghvita PRIVATE "-Wl,--wrap=main")
 foreach(sym malloc calloc realloc memalign)
-  target_link_options(gd01 PRIVATE "-Wl,--wrap=${sym}")
+  target_link_options(ghvita PRIVATE "-Wl,--wrap=${sym}")
 endforeach()
 # vita-elf-create appends ~4.5 KB of SCE tables after the code segment; when
 # the code ends just under a 64 KiB boundary the data segment overlaps them
 # ("Cannot allocate ... segment 1 overlaps"). The SDK's linker script reserves
 # __sce_headroom bytes before the data segment.
-target_link_options(gd01 PRIVATE "-Wl,--defsym=__sce_headroom=0x2000")
+target_link_options(ghvita PRIVATE "-Wl,--defsym=__sce_headroom=0x2000")
 
-vita_create_self(eboot.bin gd01 UNSAFE)
-vita_create_vpk(gd01.vpk ${VITA_TITLEID} eboot.bin
+vita_create_self(eboot.bin ghvita UNSAFE)
+vita_create_vpk(ghvita.vpk ${VITA_TITLEID} eboot.bin
   VERSION ${VITA_VERSION}
   NAME "${VITA_APP_NAME}"
   # LiveArea art (our own; bg.png and pic0.png come from tools/make-livearea-art.py).

@@ -46,13 +46,13 @@ MovieWorker::MovieWorker(SDL_AudioStream* audio) : audio_(audio) {
     input_.reserve(kInputBytes);
     SDL_PropertiesID props = SDL_CreateProperties();
     SDL_SetPointerProperty(props, SDL_PROP_THREAD_CREATE_ENTRY_FUNCTION_POINTER, reinterpret_cast<void*>(&MovieWorker::threadMain));
-    SDL_SetStringProperty(props, SDL_PROP_THREAD_CREATE_NAME_STRING, "gd01 movie");
+    SDL_SetStringProperty(props, SDL_PROP_THREAD_CREATE_NAME_STRING, "ghvita movie");
     SDL_SetPointerProperty(props, SDL_PROP_THREAD_CREATE_USERDATA_POINTER, this);
     SDL_SetNumberProperty(props, SDL_PROP_THREAD_CREATE_STACKSIZE_NUMBER, kStackBytes);
     // The converter first: the decoder reads convertThread_ when it starts.
     SDL_PropertiesID cprops = SDL_CreateProperties();
     SDL_SetPointerProperty(cprops, SDL_PROP_THREAD_CREATE_ENTRY_FUNCTION_POINTER, reinterpret_cast<void*>(&MovieWorker::convertMain));
-    SDL_SetStringProperty(cprops, SDL_PROP_THREAD_CREATE_NAME_STRING, "gd01 movie convert");
+    SDL_SetStringProperty(cprops, SDL_PROP_THREAD_CREATE_NAME_STRING, "ghvita movie convert");
     SDL_SetPointerProperty(cprops, SDL_PROP_THREAD_CREATE_USERDATA_POINTER, this);
     SDL_SetNumberProperty(cprops, SDL_PROP_THREAD_CREATE_STACKSIZE_NUMBER, kConvertStackBytes);
     convertThread_ = SDL_CreateThreadWithProperties(cprops);

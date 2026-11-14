@@ -156,7 +156,7 @@ index 0a60673..bd1cd4c 100644
 @@ -1,6 +1,7 @@
  // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
  // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
- // Modified by irxd on 2026-11-10: PS Vita: frame phase timing marks for gd01.log (update).
+ // Modified by irxd on 2026-11-10: PS Vita: frame phase timing marks for ghvita.log (update).
 +// Modified by irxd on 2026-11-11: PS Vita: crowd shown by the Crowd setting; impostors refreshed half per frame.
  #include "render/venue_renderer.h"
  #if defined(__vita__)

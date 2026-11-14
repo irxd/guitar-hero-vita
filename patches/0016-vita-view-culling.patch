@@ -73,7 +73,7 @@ index d1c41a9..9269c22 100644
 +// the mesh's own MVP (so in mesh space: exact for any scale or mirroring).
 +bool SceneRenderer::vitaOutside(const DrawMesh& dm, const Mat4& mvp) {
 +    static const bool enabled = [] {
-+        const char* v = std::getenv("GD01_VITA_CULL");  // args.txt variables are set after SDL copied the environment
++        const char* v = std::getenv("GHVITA_CULL");  // args.txt variables are set after SDL copied the environment
 +        return !(v && v[0] == '0');
 +    }();
 +    const float* s = dm.vitaSphere;

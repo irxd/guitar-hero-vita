@@ -7,7 +7,7 @@
 #   - vitacompanion 1.08: vitacompanion_kernel.skprx under *KERNEL and
 #     vitacompanion.suprx under *main in ur0:tai/config.txt, then reboot
 #     (do not load it together with vita-agent-use, which lists it as incompatible);
-#   - gd01 installed once from build-out/gd01.vpk (this script only replaces
+#   - GH Vita installed once from build-out/ghvita.vpk (this script only replaces
 #     eboot.bin; reinstall the VPK when sce_sys/param.sfo or LiveArea changes);
 #   - the Vita on the same network as this PC, not asleep.
 #
@@ -28,7 +28,7 @@
 #                    '--song smokeonthewater --autoplay' (written to
 #                    ux0:data/ghvita/args.txt; the game reads and deletes it)
 #
-# Output: agents/scratch/runs/<timestamp>/ with gd01.log, memory.log (only
+# Output: agents/scratch/runs/<timestamp>/ with ghvita.log, memory.log (only
 # written on an allocation failure), new crash dumps (decoded with
 # tools/parse-core.sh) and summary.txt (perf and memory lines).
 set -euo pipefail
@@ -94,7 +94,7 @@ if [ "$deploy" = 1 ]; then
     echo "== upload eboot.bin ($(stat -c %s "$OUT/eboot.bin") bytes)"
     curl -sS --ftp-method nocwd -T "$OUT/eboot.bin" "$FTP/ux0:/app/$TITLE_ID/eboot.bin"
     cp "$OUT/eboot.bin" "$RUN/eboot.bin"   # parse-core needs the matching build
-    [ -f "$OUT/gd01" ] && cp "$OUT/gd01" "$RUN/gd01.elf" || true   # unstripped ELF
+    [ -f "$OUT/ghvita" ] && cp "$OUT/ghvita" "$RUN/ghvita.elf" || true   # unstripped ELF
 fi
 
 if [ "$launch" = 1 ] && [ -n "$game_args" ]; then
@@ -119,7 +119,7 @@ if [ "$launch" = 1 ]; then
 fi
 
 echo "== collect logs into $RUN"
-for f in gd01.log memory.log; do
+for f in ghvita.log memory.log; do
     curl -s --ftp-method nocwd -o "$RUN/$f" "$FTP/ux0:/data/ghvita/$f" || rm -f "$RUN/$f"
     [ -s "$RUN/$f" ] || rm -f "$RUN/$f"
 done
@@ -129,8 +129,8 @@ new_dumps="$(comm -13 <(printf '%s\n' "$before" | sort) <(printf '%s\n' "$after"
 for d in $new_dumps; do
     echo "== new crash dump: $d"
     curl -s --ftp-method nocwd -o "$RUN/$d" "$FTP/ux0:/data/$d"
-    if [ -f "$RUN/gd01.elf" ]; then
-        ELF="$RUN/gd01.elf" bash "$REPO/tools/parse-core.sh" "$RUN/$d" >"$RUN/$d.txt" 2>&1 || true
+    if [ -f "$RUN/ghvita.elf" ]; then
+        ELF="$RUN/ghvita.elf" bash "$REPO/tools/parse-core.sh" "$RUN/$d" >"$RUN/$d.txt" 2>&1 || true
         echo "   decoded: $RUN/$d.txt"
     fi
 done
@@ -146,16 +146,16 @@ fi
 {
     echo "run $stamp, wait ${wait_s}s, input: ${input:-none}"
     [ -z "$new_dumps" ] || echo "CRASH DUMPS: $new_dumps"
-    if [ -f "$RUN/gd01.log" ]; then
+    if [ -f "$RUN/ghvita.log" ]; then
         echo "-- perf"
-        grep -E 'vita: (perf|phases)' "$RUN/gd01.log" || echo "(no perf lines)"
+        grep -E 'vita: (perf|phases)' "$RUN/ghvita.log" || echo "(no perf lines)"
         echo "-- memory (last 3)"
-        grep 'vita: memory' "$RUN/gd01.log" | tail -n 3 || true
+        grep 'vita: memory' "$RUN/ghvita.log" | tail -n 3 || true
         echo "-- errors / warnings"
-        grep -iE 'error|fail|assert|abort' "$RUN/gd01.log" | tail -n 20 || true
+        grep -iE 'error|fail|assert|abort' "$RUN/ghvita.log" | tail -n 20 || true
         echo "-- last lines"
-        tail -n 5 "$RUN/gd01.log"
+        tail -n 5 "$RUN/ghvita.log"
     else
-        echo "no gd01.log on the Vita"
+        echo "no ghvita.log on the Vita"
     fi
 } | tee "$RUN/summary.txt"

@@ -38,7 +38,7 @@ bool yuvToRgbaNeon(const uint8_t* y, int lumaStride, const uint8_t* cb, const ui
                    int height, bool progressive, bool blend, uint8_t* dst, size_t dstStride);
 
 // Fast paths (2026-11-13), not bit-exact: the exact ones above left the movies
-// at about 8 pictures a second. Off with GD01_VITA_EXACT_MOVIE=1.
+// at about 8 pictures a second. Off with GHVITA_EXACT_MOVIE=1.
 //
 // Integer inverse DCT of `in` (as idct8x8Neon) written (intra) or added
 // (non-intra) to dst, clamped to 0..255: within one level of the float IDCT.

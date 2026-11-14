@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds gd01 for PS Vita inside WSL (VitaSDK from tools/setup-vitasdk.sh).
-# Output: $OUT/gd01.vpk (copied to build-out/ in the repo when it exists).
+# Output: $OUT/ghvita.vpk (copied to build-out/ in the repo when it exists).
 #
 # Usage (from PowerShell):
 #   wsl -d Ubuntu -u root -- bash /mnt/d/Personal/guitar-hero-vita/tools/build-vita.sh [extra ninja args, e.g. -k 0]
@@ -41,8 +41,8 @@ cmake -S "$REPO/vita" -B "$OUT" -G Ninja \
     -DGD01_VITAGL_DIR="$VITAGL_DIR"
 cmake --build "$OUT" -- "$@"
 
-if [ -f "$OUT/gd01.vpk" ]; then
+if [ -f "$OUT/ghvita.vpk" ]; then
     mkdir -p "$REPO/build-out"
-    cp "$OUT/gd01.vpk" "$REPO/build-out/"
-    ls -la "$REPO/build-out/gd01.vpk"
+    cp "$OUT/ghvita.vpk" "$REPO/build-out/"
+    ls -la "$REPO/build-out/ghvita.vpk"
 fi

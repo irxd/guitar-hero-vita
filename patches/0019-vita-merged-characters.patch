@@ -153,7 +153,7 @@ index 9269c22..10da9c3 100644
 +
 +void SceneRenderer::vitaBeginBatch() {
 +    // Only with the bone palette shader, which is experimental and off unless
-+    // GD01_VITA_MERGE=1 (vita_platform.cpp applyBonePalette).
++    // GHVITA_MERGE=1 (vita_platform.cpp applyBonePalette).
 +    vitaBatching_ = renderer_.vitaBonePalette();
 +    vitaLightValid_ = false;  // a new character draw: lights may have moved
 +}

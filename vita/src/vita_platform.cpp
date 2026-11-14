@@ -19,7 +19,7 @@
 //   SDL_SetLogOutputFunction -> the same function, run by a log writer thread
 //
 // Before main: the data folder is created, GD01_LOG points the log at
-// ux0:data/ghvita/gd01.log (main.cpp's openLogFile), and the clocks go to max.
+// ux0:data/ghvita/ghvita.log (main.cpp's openLogFile), and the clocks go to max.
 #include <vitaGL.h>
 
 #include <SDL3/SDL.h>
@@ -56,7 +56,7 @@
 // separate pools (CDRAM first, then RAM above the threshold set at init).
 // 192 MB ran out in the quick play character preview (hardware,
 // 2026-11-10); 256 MB with extended memory mode (ATTRIBUTE2=12 in the SFO,
-// vita/CMakeLists.txt). [verify] tune with the memory reports in gd01.log.
+// vita/CMakeLists.txt). [verify] tune with the memory reports in ghvita.log.
 extern "C" {
 int _newlib_heap_size_user = 256 * 1024 * 1024;
 // The real SDL function, behind -Wl,--wrap (asynchronous log below).
@@ -66,7 +66,7 @@ void __real_SDL_SetLogOutputFunction(SDL_LogOutputFunction callback, void* userd
 namespace {
 
 constexpr const char* kDataDir = "ux0:data/ghvita/";
-constexpr const char* kLogPath = "ux0:data/ghvita/gd01.log";
+constexpr const char* kLogPath = "ux0:data/ghvita/ghvita.log";
 constexpr const char* kArgsPath = "ux0:data/ghvita/args.txt";
 constexpr int kScreenWidth = 960, kScreenHeight = 544;
 constexpr int kVglRamThreshold = 16 * 1024 * 1024;
@@ -80,7 +80,7 @@ int gContextToken = 0;  // its address is the one SDL_GLContext handed out
 // heap is exhausted. It is a separate file: main.cpp's log FILE has its own
 // write position and would overwrite lines appended behind its back.
 constexpr const char* kMemoryLogPath = "ux0:data/ghvita/memory.log";
-constexpr uint64_t kMemoryReportNs = 10'000'000'000ull;  // gd01.log report every 10 s
+constexpr uint64_t kMemoryReportNs = 10'000'000'000ull;  // ghvita.log report every 10 s
 uint64_t gNextMemoryReport = 0;
 size_t gPeakHeapUsed = 0;
 // Texture upload counters (paletted textures, below).
@@ -88,7 +88,7 @@ unsigned gPaletteCount = 0, gRgbaCount = 0;
 uint64_t gPaletteSavedBytes = 0, gRgbaBytes = 0;
 
 // --- Frame statistics ------------------------------------------------------
-// Every 5 s, gd01.log gets the frame rate and, per frame, the CPU time
+// Every 5 s, ghvita.log gets the frame rate and, per frame, the CPU time
 // between swaps (the game's own work), the time spent in vglSwapBuffers
 // (waiting for the GPU / vblank: high when GPU bound), the draw calls and
 // the vertex/index data uploaded. Hooks: glDrawArrays, glDrawElements,
@@ -114,7 +114,7 @@ uint64_t gFrameNs[kMaxPhases];  // this frame's time per phase (slow frame repor
 int gSpikeReports = 0;          // slow frame lines in the current window
 // Phase timing costs time itself: a clock read is 1.3 us on the Vita
 // (hardware, 2026-11-11), and level 2 reads it 4 times per mesh draw (3-4 ms
-// a song frame). GD01_VITA_PHASES (args.txt): 0 off (default: the fps line
+// a song frame). GHVITA_PHASES (args.txt): 0 off (default: the fps line
 // only), 1 frame phases, 2 also nested phases and per-draw vitaGL time.
 int gPhaseLevel = 0;
 int gPhaseCount = 0, gPhase = -1;
@@ -636,11 +636,11 @@ bool applyBonePalette(std::string& src) {
         {"uTint : aColor * uTint, vec4(1.0));", "uTint : (uSkin == 2 ? vec4(1.0) : aColor) * uTint, vec4(1.0));"},
     };
     if (src.find("uniform mat4 uBones[4];") == std::string::npos) return false;  // not the scene shader
-    // Off unless GD01_VITA_MERGE=1 (args.txt): libshacccg crashed compiling
+    // Off unless GHVITA_MERGE=1 (args.txt): libshacccg crashed compiling
     // this blended form, and the per-vertex-index form it did compile skinned
     // some band members wrongly (hardware, 2026-11-11). Without the rewrite
     // the shader is upstream's and characters draw piece by piece.
-    const char* merge = std::getenv("GD01_VITA_MERGE");
+    const char* merge = std::getenv("GHVITA_MERGE");
     if (!(merge && merge[0] == '1')) return false;
     std::string out = src;
     for (const Edit& e : kEdits) {
@@ -738,9 +738,9 @@ void initVitaGl() {
     // a scene on a render target waited for the GPU to finish its last one,
     // so the six crowd impostors stalled the CPU up to 7 ms a frame in busy
     // shots (hardware, 2026-11-11).
-    const int displayScenes = envInt("GD01_VITA_DISPLAY_SCENES", 0), fboScenes = envInt("GD01_VITA_FBO_SCENES", 4);
-    const int paramMb = envInt("GD01_VITA_PARAM_MB", 0);
-    gPhaseLevel = envInt("GD01_VITA_PHASES", 0);
+    const int displayScenes = envInt("GHVITA_DISPLAY_SCENES", 0), fboScenes = envInt("GHVITA_FBO_SCENES", 4);
+    const int paramMb = envInt("GHVITA_PARAM_MB", 0);
+    gPhaseLevel = envInt("GHVITA_PHASES", 0);
     {
         // What one clock read costs (the phase timer's overhead per call).
         constexpr int kReads = 2000;
@@ -748,7 +748,7 @@ void initVitaGl() {
         uint64_t sink = 0;
         for (int i = 0; i < kReads; ++i) sink += phaseNow();
         const uint64_t t1 = SDL_GetTicksNS();
-        SDL_Log("vita: frame phases level %d (GD01_VITA_PHASES); the phase clock (sceKernelGetProcessTimeLow) costs %.2f us a call%s", gPhaseLevel,
+        SDL_Log("vita: frame phases level %d (GHVITA_PHASES); the phase clock (sceKernelGetProcessTimeLow) costs %.2f us a call%s", gPhaseLevel,
                 double(t1 - t0) / 1e3 / kReads, sink ? "" : ".");
     }
     if (displayScenes > 0 || fboScenes > 0)
@@ -826,7 +826,7 @@ void asyncLogInstall(SDL_LogOutputFunction callback, void* userdata) {
         gLogMutex = SDL_CreateMutex();
         gLogWake = SDL_CreateCondition();
         gLogDrained = SDL_CreateCondition();
-        gLogThread = gLogMutex && gLogWake && gLogDrained ? SDL_CreateThread(asyncLogThread, "gd01 log", nullptr) : nullptr;
+        gLogThread = gLogMutex && gLogWake && gLogDrained ? SDL_CreateThread(asyncLogThread, "ghvita log", nullptr) : nullptr;
     }
     if (!gLogThread) return __real_SDL_SetLogOutputFunction(callback, userdata);  // synchronous, as upstream
     asyncLogDrain();  // lines queued for the previous function go to it
@@ -841,7 +841,8 @@ __attribute__((constructor)) void vitaEarlyInit() {
     // harmlessly when it is missing or ghvita already exists).
     sceIoRename("ux0:data/gd01", "ux0:data/ghvita");
     sceIoMkdir("ux0:data/ghvita", 0777);
-    sceIoRemove(kMemoryLogPath);  // one run per file, like gd01.log
+    sceIoRemove("ux0:data/ghvita/gd01.log");  // the log's old name
+    sceIoRemove(kMemoryLogPath);  // one run per file, like ghvita.log
     setenv("GD01_LOG", kLogPath, 0);  // main.cpp opens it before anything logs
     scePowerSetArmClockFrequency(444);
     scePowerSetBusClockFrequency(222);
@@ -906,7 +907,7 @@ int __real_main(int argc, char** argv);
 int __wrap_main(int argc, char** argv) {
     static std::vector<std::string> words;
     static std::vector<char*> args;
-    args.push_back(argc > 0 ? argv[0] : const_cast<char*>("gd01"));
+    args.push_back(argc > 0 ? argv[0] : const_cast<char*>("ghvita"));
     if (FILE* f = std::fopen(kArgsPath, "r")) {
         char word[512];
         while (std::fscanf(f, "%511s", word) == 1) {
@@ -952,13 +953,13 @@ bool __wrap_SDL_GL_DestroyContext(SDL_GLContext /*context*/) { return true; }
 bool __wrap_SDL_GL_MakeCurrent(SDL_Window* /*window*/, SDL_GLContext /*context*/) { return true; }
 
 bool __wrap_SDL_GL_SwapWindow(SDL_Window* /*window*/) {
-    // Debug screenshots: GD01_VITA_SHOT=<frame>,<frame>,... (args.txt) writes
+    // Debug screenshots: GHVITA_SHOT=<frame>,<frame>,... (args.txt) writes
     // those frames' screen as raw RGBA, bottom row first, to
     // ux0:data/ghvita/shot_<frame>.rgba (960x544). Off unless asked for.
     static unsigned frame = 0;
     static const std::vector<unsigned> shots = [] {
         std::vector<unsigned> v;
-        if (const char* e = std::getenv("GD01_VITA_SHOT"))
+        if (const char* e = std::getenv("GHVITA_SHOT"))
             for (const char* q = e; *q;) {
                 char* end = nullptr;
                 const unsigned long n = std::strtoul(q, &end, 10);
@@ -988,7 +989,7 @@ bool __wrap_SDL_GL_SwapWindow(SDL_Window* /*window*/) {
     vglSwapBuffers(GL_FALSE);
     const uint64_t now = phaseNow();
     if (kFrameStats) frameStatsSwap(swapStart, now);
-    // Periodic reports only in measured runs (GD01_VITA_PHASES >= 1): even
+    // Periodic reports only in measured runs (GHVITA_PHASES >= 1): even
     // queued to the log thread, a write to the memory card made the next
     // frame 16-19 ms late (hardware, 2026-11-11). The first frame's report stays.
     if (now >= gNextMemoryReport && (gNextMemoryReport == 0 || gPhaseLevel > 0)) {
@@ -1028,7 +1029,7 @@ void* __wrap_memalign(size_t alignment, size_t size) {
 }
 
 // The log, written by a thread on core 2. main.cpp's log output fflushes
-// gd01.log after every line, and SDL's own output follows: on the memory card
+// ghvita.log after every line, and SDL's own output follows: on the memory card
 // that blocked the game 20-60 ms a line (hardware, 2026-11-11: a hitch at
 // every 5 s perf line). The game's output function now runs on the writer
 // thread; the caller only queues the message. Restoring another function

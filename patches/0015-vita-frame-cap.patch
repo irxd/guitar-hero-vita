@@ -5,7 +5,7 @@ index 1dfee18..a0842ff 100644
 @@ -5,6 +5,8 @@
  // Modified by irxd on 2026-11-10: PS Vita: free the old venue before loading the next (startSong).
  // Modified by irxd on 2026-11-10: PS Vita: movies decoded on a worker thread (startMovie, movieFrame, endMovie).
- // Modified by irxd on 2026-11-10: PS Vita: frame phase timing marks for gd01.log (frame).
+ // Modified by irxd on 2026-11-10: PS Vita: frame phase timing marks for ghvita.log (frame).
 +// Modified by irxd on 2026-11-11: PS Vita: Max FPS 30 (default, steady) or 60, paced by vitaGL's vblank interval.
 +// Modified by irxd on 2026-11-11: PS Vita: Performance Mode Notes Only (no venue) and the Crowd setting.
  #include "app.h"

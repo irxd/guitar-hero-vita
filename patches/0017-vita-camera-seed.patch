@@ -5,7 +5,7 @@ index 1bf2a6b..66b1c71 100644
 @@ -1,9 +1,13 @@
  // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
  // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
-+// Modified by irxd on 2026-11-11: PS Vita: GD01_VITA_SEED seeds the shot choice (repeatable benchmark runs).
++// Modified by irxd on 2026-11-11: PS Vita: GHVITA_SEED seeds the shot choice (repeatable benchmark runs).
  #include "game/venue_camera.h"
  
  #include <algorithm>
@@ -22,7 +22,7 @@ index 1bf2a6b..66b1c71 100644
  VenueCamera::VenueCamera(const DataNode& script, const DataNode& camPaths, const DataNode* durations) {
 +#if defined(__vita__)
 +    // PS Vita: the same shots on every run for performance measurements.
-+    if (const char* seed = std::getenv("GD01_VITA_SEED"); seed && *seed) rng_.seed(uint32_t(std::strtoul(seed, nullptr, 10)));  // std::getenv: args.txt variables are set after SDL copied the environment
++    if (const char* seed = std::getenv("GHVITA_SEED"); seed && *seed) rng_.seed(uint32_t(std::strtoul(seed, nullptr, 10)));  // std::getenv: args.txt variables are set after SDL copied the environment
 +#endif
      // {set $camedit.<group> ({arena switch_cam <path> <shot> (key value...)...} ...)}
      for (const DataNode& n : script.children) {

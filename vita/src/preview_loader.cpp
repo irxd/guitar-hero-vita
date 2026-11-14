@@ -16,7 +16,7 @@ PreviewLoader::PreviewLoader() {
     wake_ = SDL_CreateCondition();
     SDL_PropertiesID props = SDL_CreateProperties();
     SDL_SetPointerProperty(props, SDL_PROP_THREAD_CREATE_ENTRY_FUNCTION_POINTER, reinterpret_cast<void*>(&PreviewLoader::threadMain));
-    SDL_SetStringProperty(props, SDL_PROP_THREAD_CREATE_NAME_STRING, "gd01 preview");
+    SDL_SetStringProperty(props, SDL_PROP_THREAD_CREATE_NAME_STRING, "ghvita preview");
     SDL_SetPointerProperty(props, SDL_PROP_THREAD_CREATE_USERDATA_POINTER, this);
     thread_ = SDL_CreateThreadWithProperties(props);
     SDL_DestroyProperties(props);

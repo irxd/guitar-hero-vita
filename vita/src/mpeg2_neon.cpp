@@ -168,10 +168,10 @@ inline int chromaRow(const Planes& f, int y) { return f.progressive ? y >> 1 : (
     }
 }
 
-// GD01_VITA_EXACT_MOVIE=1: the bit-exact paths only (for comparisons).
+// GHVITA_EXACT_MOVIE=1: the bit-exact paths only (for comparisons).
 [[maybe_unused]] bool fastMovie() {
     static const bool on = [] {
-        const char* v = SDL_getenv("GD01_VITA_EXACT_MOVIE");
+        const char* v = SDL_getenv("GHVITA_EXACT_MOVIE");
         return !(v && *v && *v != '0');
     }();
     return on;

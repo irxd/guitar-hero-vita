@@ -3,7 +3,7 @@ index a0842ff..1493bdc 100644
 --- a/gd-game-01/engine/src/app.cpp
 +++ b/gd-game-01/engine/src/app.cpp
 @@ -7,6 +7,7 @@
- // Modified by irxd on 2026-11-10: PS Vita: frame phase timing marks for gd01.log (frame).
+ // Modified by irxd on 2026-11-10: PS Vita: frame phase timing marks for ghvita.log (frame).
  // Modified by irxd on 2026-11-11: PS Vita: Max FPS 30 (default, steady) or 60, paced by vitaGL's vblank interval.
  // Modified by irxd on 2026-11-11: PS Vita: Performance Mode Notes Only (no venue) and the Crowd setting.
 +// Modified by irxd on 2026-11-11: PS Vita: song previews read only their window of the .vgs, on a worker thread (songPreview).
