@@ -836,11 +836,42 @@ void asyncLogInstall(SDL_LogOutputFunction callback, void* userdata) {
     __real_SDL_SetLogOutputFunction(asyncLogOutput, nullptr);
 }
 
+// config.txt keeps the disc image as a full path (app.cpp rememberPath), and
+// a remembered path wins over the .iso search: after the folder move it still
+// named ux0:data/gd01/. Rewrites that prefix in place; the file is one line.
+void fixOldConfigPath() {
+    constexpr const char* kConfig = "ux0:data/ghvita/config.txt";
+    constexpr const char* kOld = "ux0:data/gd01/";
+    constexpr const char* kNew = "ux0:data/ghvita/";
+    char in[2048], out[4096];
+    SceUID fd = sceIoOpen(kConfig, SCE_O_RDONLY, 0);
+    if (fd < 0) return;
+    int n = sceIoRead(fd, in, sizeof(in) - 1);
+    sceIoClose(fd);
+    if (n <= 0 || n >= int(sizeof(in)) - 1) return;  // empty, or too big to be ours
+    in[n] = '\0';
+    if (!std::strstr(in, kOld)) return;
+    const size_t oldLen = std::strlen(kOld), newLen = std::strlen(kNew);
+    size_t o = 0;
+    for (const char* p = in; *p;) {
+        if (std::strncmp(p, kOld, oldLen) == 0) {
+            std::memcpy(out + o, kNew, newLen), o += newLen, p += oldLen;
+        } else {
+            out[o++] = *p++;
+        }
+    }
+    fd = sceIoOpen(kConfig, SCE_O_WRONLY | SCE_O_TRUNC, 0666);
+    if (fd < 0) return;
+    sceIoWrite(fd, out, o);
+    sceIoClose(fd);
+}
+
 __attribute__((constructor)) void vitaEarlyInit() {
     // The data folder used to be ux0:data/gd01: move an old one over (fails
     // harmlessly when it is missing or ghvita already exists).
     sceIoRename("ux0:data/gd01", "ux0:data/ghvita");
     sceIoMkdir("ux0:data/ghvita", 0777);
+    fixOldConfigPath();
     sceIoRemove("ux0:data/ghvita/gd01.log");  // the log's old name
     sceIoRemove(kMemoryLogPath);  // one run per file, like ghvita.log
     setenv("GD01_LOG", kLogPath, 0);  // main.cpp opens it before anything logs
