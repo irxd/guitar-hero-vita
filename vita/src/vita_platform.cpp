@@ -14,12 +14,12 @@
 //   SDL_GL_GetProcAddress    -> vglGetProcAddress, plus stand-ins for the five
 //                               functions vitaGL lacks (logged once each)
 //   SDL_GL_ExtensionSupported-> vitaGL's GL_EXTENSIONS string
-//   SDL_GetBasePath          -> ux0:data/gd01/ (the ISO is picked up there)
-//   SDL_GetPrefPath          -> ux0:data/gd01/ (config, career, enhanced settings)
+//   SDL_GetBasePath          -> ux0:data/ghvita/ (the ISO is picked up there)
+//   SDL_GetPrefPath          -> ux0:data/ghvita/ (config, career, enhanced settings)
 //   SDL_SetLogOutputFunction -> the same function, run by a log writer thread
 //
 // Before main: the data folder is created, GD01_LOG points the log at
-// ux0:data/gd01/gd01.log (main.cpp's openLogFile), and the clocks go to max.
+// ux0:data/ghvita/gd01.log (main.cpp's openLogFile), and the clocks go to max.
 #include <vitaGL.h>
 
 #include <SDL3/SDL.h>
@@ -65,9 +65,9 @@ void __real_SDL_SetLogOutputFunction(SDL_LogOutputFunction callback, void* userd
 
 namespace {
 
-constexpr const char* kDataDir = "ux0:data/gd01/";
-constexpr const char* kLogPath = "ux0:data/gd01/gd01.log";
-constexpr const char* kArgsPath = "ux0:data/gd01/args.txt";
+constexpr const char* kDataDir = "ux0:data/ghvita/";
+constexpr const char* kLogPath = "ux0:data/ghvita/gd01.log";
+constexpr const char* kArgsPath = "ux0:data/ghvita/args.txt";
 constexpr int kScreenWidth = 960, kScreenHeight = 544;
 constexpr int kVglRamThreshold = 16 * 1024 * 1024;
 
@@ -79,7 +79,7 @@ int gContextToken = 0;  // its address is the one SDL_GLContext handed out
 // that path allocates (fixed buffer, sceClib, sceIo), so it works when the
 // heap is exhausted. It is a separate file: main.cpp's log FILE has its own
 // write position and would overwrite lines appended behind its back.
-constexpr const char* kMemoryLogPath = "ux0:data/gd01/memory.log";
+constexpr const char* kMemoryLogPath = "ux0:data/ghvita/memory.log";
 constexpr uint64_t kMemoryReportNs = 10'000'000'000ull;  // gd01.log report every 10 s
 uint64_t gNextMemoryReport = 0;
 size_t gPeakHeapUsed = 0;
@@ -356,11 +356,11 @@ Standin gStandins[] = {
 //    crashes (hardware, 2026-11-10). The layout(location) inputs become
 //    attributes bound with glBindAttribLocation just before the link.
 // 2. Tracing (bring-up aid): every compile/link is logged with its status,
-//    info log and free memory; sources go to ux0:data/gd01/shaders/
+//    info log and free memory; sources go to ux0:data/ghvita/shaders/
 //    (<id>.orig.glsl as gd01 sent it, <id>.glsl as vitaGL got it).
 constexpr bool kRewriteToEs100 = true;
 constexpr bool kTraceShaders = true;
-constexpr const char* kShaderDir = "ux0:data/gd01/shaders";
+constexpr const char* kShaderDir = "ux0:data/ghvita/shaders";
 
 using CreateShaderFn = GLuint (*)(GLenum);
 using AttachShaderFn = void (*)(GLuint, GLuint);
@@ -837,7 +837,10 @@ void asyncLogInstall(SDL_LogOutputFunction callback, void* userdata) {
 }
 
 __attribute__((constructor)) void vitaEarlyInit() {
-    sceIoMkdir("ux0:data/gd01", 0777);
+    // The data folder used to be ux0:data/gd01: move an old one over (fails
+    // harmlessly when it is missing or ghvita already exists).
+    sceIoRename("ux0:data/gd01", "ux0:data/ghvita");
+    sceIoMkdir("ux0:data/ghvita", 0777);
     sceIoRemove(kMemoryLogPath);  // one run per file, like gd01.log
     setenv("GD01_LOG", kLogPath, 0);  // main.cpp opens it before anything logs
     scePowerSetArmClockFrequency(444);
@@ -893,7 +896,7 @@ void profilePop() {
 
 extern "C" {
 
-// One-shot command line: ux0:data/gd01/args.txt (whitespace separated, e.g.
+// One-shot command line: ux0:data/ghvita/args.txt (whitespace separated, e.g.
 // "--song <id> --autoplay", written by tools/vita-loop.sh --args) is read and
 // deleted, so the next normal start is unaffected. The Vita has no argv.
 // NAME=value words set environment variables instead (GD01_FRAMELOG=1, the
@@ -951,7 +954,7 @@ bool __wrap_SDL_GL_MakeCurrent(SDL_Window* /*window*/, SDL_GLContext /*context*/
 bool __wrap_SDL_GL_SwapWindow(SDL_Window* /*window*/) {
     // Debug screenshots: GD01_VITA_SHOT=<frame>,<frame>,... (args.txt) writes
     // those frames' screen as raw RGBA, bottom row first, to
-    // ux0:data/gd01/shot_<frame>.rgba (960x544). Off unless asked for.
+    // ux0:data/ghvita/shot_<frame>.rgba (960x544). Off unless asked for.
     static unsigned frame = 0;
     static const std::vector<unsigned> shots = [] {
         std::vector<unsigned> v;

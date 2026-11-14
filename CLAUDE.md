@@ -57,7 +57,7 @@ Guitar Hero (PS2, 2005) engine. It loads the player's **own** disc image at run 
 | RAM budget | Aim for **< 300 MB** main RAM. Homebrew gets roughly 256–365 MB. 128 MB CDRAM for video. |
 | Screen | 960x544 |
 | Toolchain | VitaSDK (arm-vita-eabi), CMake, SDL3 (Vita port), vitaGL |
-| Data path | `ux0:data/gd01/` (ISO, saves, config, shader cache) |
+| Data path | `ux0:data/ghvita/` (ISO, saves, config, shader cache) |
 | Output | Standalone `eboot.bin` in a VPK. No launcher, no `dlopen`. |
 
 ## Dev environment (this PC: Windows 11)

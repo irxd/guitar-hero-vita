@@ -75,7 +75,7 @@ platforms build exactly as upstream.
 | Date | Files | What |
 |---|---|---|
 | 2026-11-10 | `vita/CMakeLists.txt` | VitaSDK build of the upstream gd-game-01 sources with a reduced gd-engine-core (OpenGL backend only, no audio backends, no Vulkan), packaged as a VPK |
-| 2026-11-10 | `vita/src/vita_platform.cpp` | Vita platform layer, reached through linker `--wrap` of SDL calls: vitaGL bring-up, stand-ins for 5 GL functions vitaGL lacks, data paths in `ux0:data/gd01/`, logging, memory and frame statistics, shader hooks, `gl_VertexID` emulation, paletted texture uploads |
+| 2026-11-10 | `vita/src/vita_platform.cpp` | Vita platform layer, reached through linker `--wrap` of SDL calls: vitaGL bring-up, stand-ins for 5 GL functions vitaGL lacks, data paths in `ux0:data/ghvita/`, logging, memory and frame statistics, shader hooks, `gl_VertexID` emulation, paletted texture uploads |
 | 2026-11-10 | `vita/src/glsl_es100.cpp`, `vita/src/glsl_es100.h` | GLSL ES 3.00 → 1.00 rewrite of gd01's shaders for vitaGL's translator |
 | 2026-11-10 | `vita/src/texture_palette.cpp`, `vita/src/texture_palette.h` | Lossless RGBA8 → 8-bit paletted texture packing (textures of at most 256 colours) |
 | 2026-11-10 | `vita/src/movie_worker.cpp`, `vita/src/movie_worker.h` | Movie decoding thread used by patch 0006 (pinned to core 1, skips B pictures and late conversions while behind, logs decode statistics) |

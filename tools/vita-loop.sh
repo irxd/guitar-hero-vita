@@ -26,7 +26,7 @@
 #   --cmd CMD        just send one command to port 1338 and exit (e.g. version)
 #   --args ARGS      one-shot gd01 command line for this launch, e.g.
 #                    '--song smokeonthewater --autoplay' (written to
-#                    ux0:data/gd01/args.txt; the game reads and deletes it)
+#                    ux0:data/ghvita/args.txt; the game reads and deletes it)
 #
 # Output: agents/scratch/runs/<timestamp>/ with gd01.log, memory.log (only
 # written on an allocation failure), new crash dumps (decoded with
@@ -100,7 +100,7 @@ fi
 if [ "$launch" = 1 ] && [ -n "$game_args" ]; then
     echo "== arguments: $game_args"
     printf '%s\n' "$game_args" > "$RUN/args.txt"
-    curl -sS --ftp-method nocwd -T "$RUN/args.txt" "$FTP/ux0:/data/gd01/args.txt"
+    curl -sS --ftp-method nocwd -T "$RUN/args.txt" "$FTP/ux0:/data/ghvita/args.txt"
 fi
 
 if [ "$launch" = 1 ]; then
@@ -120,7 +120,7 @@ fi
 
 echo "== collect logs into $RUN"
 for f in gd01.log memory.log; do
-    curl -s --ftp-method nocwd -o "$RUN/$f" "$FTP/ux0:/data/gd01/$f" || rm -f "$RUN/$f"
+    curl -s --ftp-method nocwd -o "$RUN/$f" "$FTP/ux0:/data/ghvita/$f" || rm -f "$RUN/$f"
     [ -s "$RUN/$f" ] || rm -f "$RUN/$f"
 done
 

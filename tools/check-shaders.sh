@@ -2,7 +2,7 @@
 # Runs the GLSL ES 3.00 -> 1.00 rewrite (vita/src/glsl_es100.cpp) on shader
 # sources and validates the results as GLSL ES 1.00 with glslangValidator.
 # Input: a folder of <id>.orig.glsl (or <id>.glsl) files as saved by the Vita
-# build's shader tracing in ux0:data/gd01/shaders/.
+# build's shader tracing in ux0:data/ghvita/shaders/.
 #
 # Usage (from PowerShell):
 #   wsl -d Ubuntu -u root -- bash /mnt/d/Personal/guitar-hero-vita/tools/check-shaders.sh /mnt/d/.../shaders
