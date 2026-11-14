@@ -300,6 +300,19 @@ Alternatives:
 - Post-FX off by default
 - Button play instead of guitar
 
+## Upstream report queue
+
+General bugs (every platform) found during the port, to report to the maintainer later in one
+batch, as with #100. The user decides when; nothing is posted until they ask. Vita-only patches
+are not offered.
+
+| Found | Our patch | Bug | Status |
+|---|---|---|---|
+| 2026-11-14 | 0035 | Re-entering a screen with `retain_last_focus FALSE` (the store's menu) leaves the last visit's item highlighted beside the default one: `Panel::enter()` clears `focus_` before `setFocus`, so the old item's scene state stays Focused. | Fixed on the Vita (checked on hardware); not reported |
+
+Reported earlier: #100 (script `mod` wrap, held menu direction after Bind to, GPU objects freed
+with their SceneRenderer), fixed upstream in gd01 1.1.13.
+
 ## Open questions
 - ~~Controls~~: the user accepted the default "thumb strum" layout (2026-11-10).
 - Dev PC: Gigabyte B450 I AORUS PRO WIFI. SVM is under Tweaker → Advanced CPU Settings (or M.I.T. → Advanced Frequency Settings → Advanced CPU Core Settings on older BIOS). The user is choosing between Option A (SVM + WSL2) and Option B (WSL1, no BIOS change). Option B is acceptable: keep the toolchain and build dir inside the Linux home (`~/`), not `/mnt/d`, for speed. Upgrade later with `wsl --set-version Ubuntu 2`.
@@ -333,4 +346,4 @@ Alternatives:
 - 2026-11-14: #100 resolved by the owner, no PR needed: upstream commit `2c506cb5` on `main` (gd01 1.1.13, release 1.1.15; GD01-319..321) ports all three fixes with self-tests. The rebind fix differs from ours: it clears the other player's held direction only when it isn't the releasing player's own, so two players holding a direction still work. The scene fix frees GPU objects on the local backend and releases `track2_` before the renderer. **When we bump the pin** (still `929477ca`), drop patches 0022 (`mod` wrap) and 0025 (held release) and check 0021 (free scene resources) and 0027 (free second highway) against upstream's version. The WSL branch `fix/gd-game-01/general-fixes` (`/root/gde-pr`) is no longer needed.
 - 2026-11-14: Pin bumped to `6e76ea60` (gd01 1.1.13). Patches 0022 / 0025 / 0027 dropped (upstream's #100 fixes), 0021 reduced to freeing the merged character meshes, the rest refreshed (0015 and the header lines conflicted, nothing else). New patch 0034: upstream made Vulkan the default backend everywhere except macOS / Android, which included the Vita; it stays `local`. The VPK builds with 0 warnings. **[verify]** on hardware: menus, a song, six songs in a row (heap stable), Gamepads Bind to, store scrolling.
 - 2026-11-14: Old WSL worktree `/root/gde-pr` and its branch `fix/gd-game-01/general-fixes` removed (upstream merged #100). Movie colour conversion on its own thread on core 2 (aiming for a full 30 pictures a second); on hardware the intro movie now shows all 30 pictures a second, 0 frames late. CapUnlocker: not needed for this port (the main thread is the bottleneck, and core 2 is idle enough for the movie conversion).
-- 2026-11-14: The user checked the rebased build on hardware: songs, Gamepads Bind to and store scrolling all fine. Bug they reported: entering the store's menu again showed two highlighted items (the default first one and the one left from the last visit). Cause: `Panel::enter()` clears `focus_` before `setFocus(default)` when `retain_last_focus` is FALSE, so the old item's scene state stayed Focused. Patch 0035 resets it to Normal. An upstream bug on every platform, a candidate to offer upstream (ask the user first). **[verify]** on hardware.
+- 2026-11-14: The user checked the rebased build on hardware: songs, Gamepads Bind to and store scrolling all fine. Bug they reported: entering the store's menu again showed two highlighted items (the default first one and the one left from the last visit). Cause: `Panel::enter()` clears `focus_` before `setFocus(default)` when `retain_last_focus` is FALSE, so the old item's scene state stayed Focused. Patch 0035 resets it to Normal. Checked on hardware by the user. An upstream bug on every platform: listed in the upstream report queue, to report with others later (user's call).
