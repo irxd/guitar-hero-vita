@@ -11,6 +11,28 @@ A homebrew PS Vita port of Guitar Dream Engine's reimplementation of **Guitar He
 - Licensed under the upstream terms: PolyForm Noncommercial 1.0.0 plus `LICENSE-ADDITIONAL-TERMS.md`.
   The port is non-commercial, and its full source is published with every build.
 
+## Install
+
+You need:
+
+- A hacked PS Vita or PS TV (HENkaku / h-encore / Ensō)
+- `libshacccg.suprx` extracted on the console, for example with
+  [ShaRKBR33D](https://github.com/Rinnegatamante/ShaRKBR33D). The game compiles its shaders
+  at run time and cannot start without it.
+- **Your own** Guitar Hero PS2 disc, ripped to an `.iso` (tested with *Guitar Hero (USA)*).
+  No game data is included.
+
+Steps:
+
+1. Download `ghvita-v<version>.vpk` from the
+   [Releases](https://github.com/irxd/guitar-hero-vita/releases) page.
+2. Copy it to the Vita (USB or FTP in VitaShell) and install it with VitaShell.
+3. Copy your `.iso` to `ux0:data/ghvita/` (create the folder if needed).
+4. Start **GH Vita** from the LiveArea.
+
+Settings, saves and the log (`ghvita.log`, attach it to bug reports) are also stored in
+`ux0:data/ghvita/`. To update, install the new VPK over the old one: your data is kept.
+
 ## Status
 
 **v0.1.0 (alpha)**, the first public build. Tested on a retail PS Vita with our own disc
