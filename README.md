@@ -61,10 +61,14 @@ Working on the Vita:
 - Movies (intro and in-game videos) play in sync with their sound at their full 30
   pictures a second, stretched to the full screen
 
+Testing so far:
+
+- **Partly tested:** Career mode, tutorials, the Gamepads screen
+- **Not tested:** multiplayer (face-off), which needs a second controller (a PS TV, or a
+  Vita with a DualShock plugin such as ds4vita)
+
 Known limitations:
 
-- **Not tested yet:** Career mode, tutorials, the Gamepads screen, Button Layout 2 in a song; multiplayer (face-off) needs a
-  second controller (a PS TV, or a Vita with a DualShock plugin such as ds4vita) and is untested
 - **Vita-only differences from the PC version:** no post-processing effects by default
   (bloom, depth of field), no fade at the far end of the highway, no AI upscaling, HDR or
   MIDI guitars
