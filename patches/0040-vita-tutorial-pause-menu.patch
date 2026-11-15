@@ -1,5 +1,5 @@
 diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
-index a485be95..c4fe2864 100644
+index a485be95..ed6f9e66 100644
 --- a/gd-game-01/engine/src/app.cpp
 +++ b/gd-game-01/engine/src/app.cpp
 @@ -16,6 +16,7 @@
@@ -10,19 +10,41 @@ index a485be95..c4fe2864 100644
  #include "app.h"
  
  #include <SDL3/SDL.h>
-@@ -2355,6 +2356,17 @@ void App::onAction(const InputEvent& e) {
+@@ -427,6 +428,15 @@ private:
+     void tutorialLoad(size_t index);
+     void tutorialStart(bool skipIntro, bool startPaused);
+     bool tutorial_ = false;
++#if defined(__vita__)
++    // A tutorial pause screen is up. They pause with `app set_paused`, not `game set_paused`,
++    // so screen_ stays Playing; input must still treat the pad as a menu pad.
++    bool tutorialPauseMenu() const {
++        if (!tutorial_ || !ui_) return false;
++        const std::string& s = ui_->currentScreen();
++        return s == "tut_pause" || s == "tut_pause_controller" || s == "tutorial_quit";
++    }
++#endif
+     int escapes_ = 0;  // Back presses in a row on the main menu
+     bool attractAutoplay_ = false;  // set_auto_play before the song starts
+     // UnmuteBeatMatchAudio (docs/guitar_audio.md): each player's SlipTo calls
+@@ -1317,6 +1327,9 @@ void App::updateTouchLanes() {
+         Input::TouchLanes l;
+         TrackRenderer* tr = p == 0 ? track_.get() : multi_ ? track2_.get() : nullptr;
+         l.active = tr && screen_ == Screen::Playing && (!ui_ || (ui_->inGame() && ui_->trackShowing()));
++#if defined(__vita__)
++        if (tutorialPauseMenu()) l.active = false;  // the pad works the menu: Cross is select, not the orange fret
++#endif
+         // The strike line, and 25 units up the highway (its nearer part, where the gems are readable).
+         for (int f = 0; f < 5 && l.active; ++f)
+             l.active = tr->laneScreen(f, 0, l.nearX[size_t(f)], l.nearY[size_t(f)]) && tr->laneScreen(f, 25, l.farX[size_t(f)], l.farY[size_t(f)]);
+@@ -2355,6 +2368,13 @@ void App::onAction(const InputEvent& e) {
              if (e.down) ui_->buttonDown(e.action == Action::Start ? UiSystem::Start : UiSystem::Cross, e.mode == ControllerMode::Guitar);
              break;
          }
 +#if defined(__vita__)
-+        // The tutorial pause screens pause with `app set_paused`, not `game set_paused`, so
-+        // screen_ stays Playing and their menus (resume / restart / quit) need the buttons here.
-+        if (tutorial_ && ui_) {
-+            const std::string& s = ui_->currentScreen();
-+            if (s == "tut_pause" || s == "tut_pause_controller" || s == "tutorial_quit") {
-+                uiButton(e);
-+                break;
-+            }
++        // The tutorial pause menus (resume / restart / quit) take the buttons, as the Paused screen's do.
++        if (tutorialPauseMenu()) {
++            uiButton(e);
++            break;
 +        }
 +#endif
          if ((e.action == Action::Back || e.action == Action::Start) && ui_ && ui_->inGame()) {
