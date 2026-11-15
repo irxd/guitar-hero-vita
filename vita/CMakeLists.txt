@@ -14,12 +14,14 @@ if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
   endif()
 endif()
 
-project(ghvita VERSION 1.1.11 LANGUAGES C CXX)
+# Our own version (the port's releases: 0.x while it is an alpha). The gd01
+# version it is based on is read from upstream's CMakeLists.txt below.
+project(ghvita VERSION 0.1.0 LANGUAGES C CXX)
 include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
 
 set(VITA_APP_NAME "GH Vita")
-set(VITA_TITLEID  "GDDE00001")   # placeholder title id, 9 chars
-set(VITA_VERSION  "01.00")
+set(VITA_TITLEID  "GHVT00001")   # 9 chars; chosen 2026-11-15 (was the placeholder GDDE00001)
+set(VITA_VERSION  "01.00")       # param.sfo APP_VER; the visible version is PROJECT_VERSION
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -85,7 +87,17 @@ foreach(sym SDL_CreateWindow SDL_GL_CreateContext SDL_GL_DestroyContext SDL_GL_M
 endforeach()
 # vita/src is on the path for the patches' Vita headers (e.g. movie_worker.h in patch 0006).
 target_include_directories(ghvita PRIVATE ${GD01_SRC} ${GD01_GEN} ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_compile_definitions(ghvita PRIVATE GD01_DLSS=0 GD01_VITA=1 GD01_VERSION="${PROJECT_VERSION}")
+# GD01_VERSION stays upstream's gd01 version (as in its own build);
+# GHVITA_VERSION is ours, shown on the title screen (patch 0038) and in the log.
+file(STRINGS "${UPSTREAM}/gd-game-01/engine/CMakeLists.txt" GD01_PROJECT_LINE REGEX "^project\\(gd01 VERSION ")
+string(REGEX MATCH "VERSION ([0-9.]+)" _ "${GD01_PROJECT_LINE}")
+set(GD01_UPSTREAM_VERSION "${CMAKE_MATCH_1}")
+if(NOT GD01_UPSTREAM_VERSION)
+  message(FATAL_ERROR "could not read gd01's version from upstream's CMakeLists.txt")
+endif()
+message(STATUS "GH Vita ${PROJECT_VERSION}, based on gd01 ${GD01_UPSTREAM_VERSION}")
+target_compile_definitions(ghvita PRIVATE GD01_DLSS=0 GD01_VITA=1 GD01_VERSION="${GD01_UPSTREAM_VERSION}"
+                                          GHVITA_VERSION="${PROJECT_VERSION}")
 # Our own vitaGL build (tools/build-vitagl.sh: extra speed options) when
 # given, else the SDK's.
 set(GD01_VITAGL_DIR "" CACHE PATH "Folder with a libvitaGL.a + vitaGL.h from tools/build-vitagl.sh")

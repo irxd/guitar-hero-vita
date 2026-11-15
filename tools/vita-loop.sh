@@ -35,7 +35,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${OUT:-/root/build/gd01-vita}"
-TITLE_ID="GDDE00001"
+TITLE_ID="GHVT00001"
 IP="${VITA_IP:-}"
 FTP_PORT="${VITA_FTP_PORT:-1337}"
 CMD_PORT="${VITA_CMD_PORT:-1338}"

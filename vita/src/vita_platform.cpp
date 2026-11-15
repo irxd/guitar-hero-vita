@@ -754,6 +754,7 @@ void initVitaGl() {
     if (displayScenes > 0 || fboScenes > 0)
         vglSetupRenderTargetScenesNum(uint8_t(displayScenes > 0 ? displayScenes : 1), uint8_t(fboScenes > 0 ? fboScenes : 1));
     if (paramMb > 0) vglSetParamBufferSize(uint32_t(paramMb) << 20);
+    SDL_Log("vita: GH Vita %s (gd01 %s)", GHVITA_VERSION, GD01_VERSION);
     SDL_Log("vita: vglInitExtended(%dx%d, RAM threshold %d MB; scenes display %d, fbo %d; parameter buffer %s)", kScreenWidth,
             kScreenHeight, kVglRamThreshold >> 20, displayScenes > 0 ? displayScenes : 1, fboScenes > 0 ? fboScenes : 1,
             paramMb > 0 ? (std::to_string(paramMb) + " MB").c_str() : "default");
