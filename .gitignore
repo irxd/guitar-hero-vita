@@ -36,3 +36,6 @@ param.sfo
 
 # macOS folder metadata
 .DS_Store
+
+# Release builds (tools/release-vita.sh)
+/dist/

@@ -1,6 +1,6 @@
 # gd01 → PS Vita: port plan
 
-Last updated: 2026-11-14
+Last updated: 2026-11-15
 
 ## Upstream pin
 
@@ -70,7 +70,7 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
   - `vita/compat/dlfcn.h`: `output.cpp` uses `dladdr` only to find the module's folder, so the stub reports failure (no dynamic loader on Vita).
   - `midi_in.cpp` compiles as its stub (no `GD_RTMIDI_API`). `vk_upscaler_stub.cpp` replaces the Vulkan upscaler, as on Android.
   - The icons are GDE's own art (`res/gd01_icon*.png`), embedded with upstream's `embed_file.cmake`.
-  - Title ID placeholder: `GDDE00001`.
+  - Title ID: `GHVT00001` since 2026-11-15 (was the placeholder `GDDE00001`; the old bubble must be deleted by hand, the data folder is not tied to it).
 - [x] **vitaGL bring-up, built (2026-11-10), untested on hardware.** `vita/src/vita_platform.cpp` plus `-Wl,--wrap=` for 10 SDL symbols. Still no upstream patch.
   - `SDL_CreateWindow` → 960x544 without OPENGL/RESIZABLE/HIGH_PIXEL_DENSITY. `SDL_GL_CreateContext` → `vglInitExtended(0, 960, 544, 16 MB, no MSAA)` once. `SwapWindow` → `vglSwapBuffers`. `GetProcAddress` → `vglGetProcAddress`. MakeCurrent, DestroyContext and SetSwapInterval are no-ops. ExtensionSupported checks vitaGL's GL_EXTENSIONS.
   - GL audit: gd01 + gdcore look up 86 GL functions. vitaGL r1488 exports all except `glFenceSync`, `glClientWaitSync`, `glDeleteSync` (stand-ins: glFinish, then "already signalled") and `glQueryCounter`, `glGetQueryObjectui64v` (stand-ins: no timings, 0). Each stand-in logs once.
@@ -215,7 +215,7 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
   Related idea from the user: Star Power on a rear tap.
 - [x] Our own LiveArea assets (2026-11-12): icon0 and startup "GH / VITA" lettering drawn by the user; bg.png and pic0.png are a procedural brick wall, orange-red under a blue-purple wash (pic0 with the icon lettering bottom right) from `tools/make-livearea-art.py` (earlier drafts: official GH1 art, removed; a procedural stage; an Unsplash photo). Packed via `FILE` entries in `vita/CMakeLists.txt`.
 - [x] Credits screen shows the attribution line (already in upstream's credits roll, `ui/select_panels.cpp` kGd01Credits). Start screen notice on the Vita: "GH Vita, based on GD-Engine" (patch 0030, 2026-11-13).
-- [ ] `CHANGES.md`, a VPK build script, GitHub release with source
+- [ ] Release v0.1.0 (alpha), version agreed 2026-11-15. Done: `CHANGES.md`; `tools/release-vita.sh` (clean build, VPK + full source incl. patched upstream, SPIR-V headers and vitaGL source, LGPL-3.0; notes from `docs/releases/v<version>.md`; SHA256SUMS in `dist/`); our version 0.1.0 apart from gd01's (title screen "v0.1.0 (gd01 1.1.13)", patch 0038; log line `vita: GH Vita ...`); title ID `GHVT00001` (no web hits; VitaDB's list API returned nothing that day, [verify] on VitaDB before listing). Left: hardware check of the release VPK (fresh install, new title ID, rear strum, left-stick whammy), then the GitHub release (the user's call).
 - [ ] ~~Offer the `patches/` to the maintainer~~ (not wanted, user 2026-11-12). List on VitaDB: later, the user's call.
 
 ## Performance plan (added 2026-11-10)
@@ -267,8 +267,8 @@ vitaGL pitfalls to remember:
 
 `tools/vita-loop.sh` drives a retail Vita over Wi-Fi through **vitacompanion 1.08**
 (devnoname120, MIT):
-- FTP on port 1337 replaces `ux0:app/GDDE00001/eboot.bin`.
-- Commands on port 1338: `quit GDDE00001`, `nosleep on`, `launch GDDE00001`, and optional
+- FTP on port 1337 replaces `ux0:app/GHVT00001/eboot.bin`.
+- Commands on port 1338: `quit GHVT00001`, `nosleep on`, `launch GHVT00001`, and optional
   input such as `press cross; wait 100ms; release cross`.
 - After the run it pulls `ghvita.log` / `memory.log` and any new `psp2core-*.psp2dmp`, decodes
   the dumps with `tools/parse-core.sh` against the matching ELF, and writes a perf/memory
@@ -355,3 +355,4 @@ with their SceneRenderer), fixed upstream in gd01 1.1.13.
 - 2026-11-15: Plan caught up: Phase 1 boxes ticked (its gate is met), Phase 2 shader rewrite ticked, Vita3K dropped. Next: rear touchpad strum (Phase 4, Reddit request).
 - 2026-11-15: Rear Touch Strum built (patch 0036; VPK builds, 0 warnings); the rear touchpad no longer acts as the screen. Next: the user tries it on hardware.
 - 2026-11-15: Whammy on the left stick too, both layouts (patch 0037; VPK builds, 0 warnings). [verify] on hardware, with Rear Touch Strum.
+- 2026-11-15: Version 0.1.0 (patch 0038), title ID GHVT00001, release script and v0.1.0 notes. Next: the user tests the release VPK on hardware.

@@ -13,8 +13,8 @@ A homebrew PS Vita port of Guitar Dream Engine's reimplementation of **Guitar He
 
 ## Status
 
-**Playable on hardware, not yet released.** No public VPK yet; tested on a retail PS Vita
-with the user's own disc image (2026-11-11).
+**v0.1.0 (alpha)**, the first public build. Tested on a retail PS Vita with our own disc
+image. Install steps, requirements and known issues: [docs/releases/v0.1.0.md](docs/releases/v0.1.0.md).
 
 Working on the Vita:
 
@@ -30,14 +30,16 @@ Working on the Vita:
 
   A fret press plays the note on its own, so strumming is optional. Single buttons can
   be rebound in the Gamepads screen, which overrides the layout.
-- Shake the Vita for whammy (Enhanced Settings → Shake for Whammy, off by default)
+- Whammy on either analog stick; Star Power on Select
+- Optional: tap the rear touchpad to strum (Enhanced Settings → Rear Touch Strum) and shake
+  the Vita for whammy (Shake for Whammy), both off by default
 - Our own LiveArea art and bubble icon ("GH Vita")
 - Memory stays stable however many songs you play
 
 Known limitations:
 
-- **Movies** (intro and in-game videos) play in sync with their sound at about 25 of their
-  30 pictures a second, stretched to the full screen. The engine decodes MPEG-2 in software;
+- **Movies** (intro and in-game videos) play in sync with their sound at their full 30
+  pictures a second, stretched to the full screen. The engine decodes MPEG-2 in software;
   on the Vita a faster integer decoder is used, within one brightness level of the exact one
 - **Not tested yet:** Career mode, tutorials, the Gamepads screen, Button Layout 2 in a song; multiplayer (face-off) needs a
   second controller (a PS TV, or a Vita with a DualShock plugin such as ds4vita) and is untested
@@ -45,7 +47,7 @@ Known limitations:
   (bloom, depth of field), no fade at the far end of the highway, no AI upscaling, HDR or
   MIDI guitars
 
-Still to do before a release: a VPK release with its source.
+Release builds come from `tools/release-vita.sh` (VPK, full source, notes, checksums).
 Full record of every hardware run: [docs/port-plan.md](docs/port-plan.md).
 
 ## Performance

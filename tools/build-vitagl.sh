@@ -24,15 +24,22 @@ SRC="${SRC:-/root/build/vitagl-src}"
 OUT="${OUT:-/root/build/vitagl}"
 FLAGS=(NO_DEBUG=1 HAVE_VERTEX_LAYOUT_CACHE=1)
 
-if [ ! -d "$SRC/.git" ]; then
-    git clone -q https://github.com/Rinnegatamante/vitaGL.git "$SRC"
+if [ -f "$SRC/Makefile" ] && [ ! -e "$SRC/.git" ]; then
+    # A source release's third_party/vitaGL: already the commit we link.
+    cd "$SRC"
+    VERSION_NOTE="(source release copy of $COMMIT)"
+else
+    if [ ! -d "$SRC/.git" ]; then
+        git clone -q https://github.com/Rinnegatamante/vitaGL.git "$SRC"
+    fi
+    cd "$SRC"
+    git rev-parse -q --verify "$COMMIT^{commit}" >/dev/null || git fetch -q origin
+    git checkout -q "$COMMIT"
+    VERSION_NOTE="$(git rev-parse --short HEAD)"
 fi
-cd "$SRC"
-git rev-parse -q --verify "$COMMIT^{commit}" >/dev/null || git fetch -q origin
-git checkout -q "$COMMIT"
 make clean >/dev/null
 make "${FLAGS[@]}" -j"$(nproc)"
 mkdir -p "$OUT"
 cp libvitaGL.a "$OUT/"
 cp source/vitaGL.h "$OUT/"
-echo "vitaGL $(git rev-parse --short HEAD) built with: ${FLAGS[*]} -> $OUT"
+echo "vitaGL $VERSION_NOTE built with: ${FLAGS[*]} -> $OUT"

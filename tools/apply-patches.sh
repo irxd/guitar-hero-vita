@@ -17,6 +17,12 @@ UP="$REPO/upstream"
 shopt -s nullglob
 PATCHES=("$REPO"/patches/[0-9][0-9][0-9][0-9]-*.patch)
 [ ${#PATCHES[@]} -gt 0 ] || exit 0
+# A source release (tools/release-vita.sh) ships upstream/ with the stack
+# already applied and no git history.
+if [ -f "$UP/SOURCE-RELEASE.txt" ] && [ ! -e "$UP/.git" ]; then
+    echo "patches: source release, upstream/ already patched"
+    exit 0
+fi
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
