@@ -58,12 +58,11 @@ Working on the Vita:
   the Vita for whammy (Shake for Whammy), both off by default
 - Our own LiveArea art and bubble icon ("GH Vita")
 - Memory stays stable however many songs you play
+- Movies (intro and in-game videos) play in sync with their sound at their full 30
+  pictures a second, stretched to the full screen
 
 Known limitations:
 
-- **Movies** (intro and in-game videos) play in sync with their sound at their full 30
-  pictures a second, stretched to the full screen. The engine decodes MPEG-2 in software;
-  on the Vita a faster integer decoder is used, within one brightness level of the exact one
 - **Not tested yet:** Career mode, tutorials, the Gamepads screen, Button Layout 2 in a song; multiplayer (face-off) needs a
   second controller (a PS TV, or a Vita with a DualShock plugin such as ds4vita) and is untested
 - **Vita-only differences from the PC version:** no post-processing effects by default
