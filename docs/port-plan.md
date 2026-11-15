@@ -198,7 +198,7 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
 - [ ] Try P8 (paletted) textures for the PS2 palettised data
 
 ### Phase 4: Vita polish and release (1–2 weeks)
-- [ ] Input map, default (user's layout, 2026-11-11, patch 0004): Green = D-pad ←, Red = L, Yellow = R, Blue = ○, Orange = ✕; strum = D-pad up/down; Star Power = Select (+ optional tilt via the motion sensor); whammy = right stick; pause = Start. Optional alternatives: front-touch fret zones, rear-touch strum. All remappable via the GAMEPADS screen. Labelled as a "handheld mode".
+- [ ] Input map, default (user's layout, 2026-11-11, patch 0004): Green = D-pad ←, Red = L, Yellow = R, Blue = ○, Orange = ✕; strum = D-pad up/down; Star Power = Select (+ optional tilt via the motion sensor); whammy = either stick (left added 2026-11-15, patch 0037; bindings changed on the Gamepads screen still win); pause = Start. Optional alternatives: front-touch fret zones, rear-touch strum. All remappable via the GAMEPADS screen. Labelled as a "handheld mode".
 - [x] In-game texts (2026-11-13, patch 0033): save/load messages reworded by the user (no "GD-Engine"), four GH Vita loading tips instead of the six GD-Engine developer tips, fallback first-screen name "GH Vita". Tips reworded the same day; deployed to the Vita.
 - [x] FMV kept (2026-11-13, patches 0031/0032): fast paths in `vita/src/mpeg2_neon.cpp`, movies stretched to the full screen.
   - Before (intro movie, hardware): decode 49-53 ms a picture (5,300-5,800 IDCT blocks at 6.3 us), conversion 21.5 ms, ~8 pictures shown a second, 50-67 B pictures skipped per 5 s.
@@ -354,3 +354,4 @@ with their SceneRenderer), fixed upstream in gd01 1.1.13.
 - 2026-11-14: Data folder moved to `ux0:data/ghvita/` and our names renamed from gd01 to ghvita (log, VPK, ELF, threads, `GHVITA_*` env vars); an old `gd01` folder is moved on start and `config.txt`'s ISO path rewritten. Checked on hardware (runs 20261114-225700, -230138). Details under Phase 1.
 - 2026-11-15: Plan caught up: Phase 1 boxes ticked (its gate is met), Phase 2 shader rewrite ticked, Vita3K dropped. Next: rear touchpad strum (Phase 4, Reddit request).
 - 2026-11-15: Rear Touch Strum built (patch 0036; VPK builds, 0 warnings); the rear touchpad no longer acts as the screen. Next: the user tries it on hardware.
+- 2026-11-15: Whammy on the left stick too, both layouts (patch 0037; VPK builds, 0 warnings). [verify] on hardware, with Rear Touch Strum.

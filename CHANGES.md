@@ -92,6 +92,7 @@ platforms build exactly as upstream.
 | 2026-11-10 | `tools/` | Toolchain setup, desktop and Vita builds, patch stack, shader dump and validation, GPU memory probe, crash dump decoding, movie decode benchmark, hardware build/deploy/run loop (`vita-loop.sh`) |
 | 2026-11-10 | `README.md`, `CLAUDE.md`, `docs/port-plan.md` | Project documentation |
 | 2026-11-15 | `0036-vita-rear-touch-strum.patch` | `gd-game-01/engine/src/app.cpp`, `gd-game-01/engine/src/input/input.h`, `gd-game-01/engine/src/input/input.cpp`, `gd-game-01/engine/src/ui/select_panels.cpp` | PS Vita: the rear touchpad is kept apart from the screen (SDL reports it as an indirect touch device; upstream took its touches for screen touches, so a finger on the back could press a lane). New Enhanced Settings check Rear Touch Strum, off by default: in a song each finger landing on the rear pad, away from its side edges, strums once |
+| 2026-11-15 | `0037-vita-whammy-both-sticks.patch` | `gd-game-01/engine/src/input/input.cpp`, `gd-game-01/engine/src/ui/select_panels.cpp` | PS Vita: whammy on the left stick as well as the right (any direction), in both button layouts; Shake for Whammy's help says both sticks keep working |
 
 ## Vita-only differences in behaviour
 
