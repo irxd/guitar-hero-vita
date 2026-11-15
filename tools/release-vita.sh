@@ -88,7 +88,7 @@ mkdir -p "$SRC/vita/gen"
 for h in core_renderer_spirv.h core_post_fx_hdr_spirv.h; do cp "$OUT/gen/$h" "$SRC/vita/gen/"; done
 # vitaGL as linked (LGPL-3.0), built by tools/build-vitagl.sh with its flags.
 mkdir -p "$SRC/third_party/vitaGL"
-git -C "$VITAGL_SRC" archive HEAD | tar -x -C "$SRC/third_party/vitaGL"
+git -C "$VITAGL_SRC" archive HEAD -- Makefile source COPYING COPYING.LESSER README.md | tar -x -C "$SRC/third_party/vitaGL"  # no samples
 cat > "$SRC/BUILD-FROM-SOURCE.txt" <<EOF
 GH Vita $VERSION, source of the release build (repo commit $COMMIT).
 Based on Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine
