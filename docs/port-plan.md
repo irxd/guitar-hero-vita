@@ -209,7 +209,7 @@ Re-clone: `git clone https://github.com/mbracali/prj-gd-engine.git upstream && g
   - Lesson: `vqrshrn_n_s32` takes shifts up to 16; the second pass's 18 is `vshrn #16` then `vrshr #2` (same value).
   - Left for a full 30: decode + conversion is ~34 ms on core 1 against 33.4 ms. Moving the conversion to core 2 (copy the planes, ~430 KB) would close it. The rest of decode (~17 ms) is bitstream parsing and motion compensation.
 - [ ] **Later (asked on Reddit, 2026-11-13): help for fast same-note runs (alt-strum sections).** On the Vita a fret press already plays a note, but a fast run of one note means hammering one button or alternating D-pad ↑/↓.
-  1. **Rear touchpad strum (build first):** each new finger touch on the rear pad is a strum, so two fingers drummed on the back work like alternate picking. Input-only (SDL3 reports the rear pad as its own touch device). Enhanced Settings toggle, off by default; ignore touches that stay down (grip) and count only fresh taps, maybe only in the middle of the pad.
+  1. **Rear touchpad strum: built 2026-11-15 (patch 0036), [verify] on hardware.** Enhanced Settings > Rear Touch Strum, off by default. SDL3 3.4.16's Vita driver polls the rear pad by default and reports it as touch device 2 "Back" (`SDL_TOUCH_DEVICE_INDIRECT_ABSOLUTE`, x/y 0..1 of the pad), with finger ids that can match the front's; upstream's `touchEvent` never looked at the device, so rear touches were taken for screen touches (a finger on the back in a song could press a lane). Now `Input::rearTouchEvent` gets them: nothing outside a song or with the setting off; on, each finger landing with x in 0.15..0.85 emits one Strum for the active player. Logged once per run (`input: rear touch strum`). To check: the edge band (`kRearEdge`) against real grips, accidental strums while holding, and strums against a fret press with Require Strum off (fret press + tap = two strums?). Was: each new finger touch on the rear pad is a strum, so two fingers drummed on the back work like alternate picking. Input-only (SDL3 reports the rear pad as its own touch device). Enhanced Settings toggle, off by default; ignore touches that stay down (grip) and count only fresh taps, maybe only in the middle of the pad.
   2. **Auto-strum assist (maybe, after 1):** while a button is held, notes on the held frets are hit at their exact time. Not fixed-rate rapid fire: GH1 penalises strums with no note, so that would break the combo. Touches gameplay code; label it as an assist, off by default.
   3. Front-screen swipe strum: skipped (thumbs are on the buttons).
   Related idea from the user: Star Power on a rear tap.
@@ -301,6 +301,7 @@ Alternatives:
 - No Vulkan upscalers (FSR/DLSS), no HDR, no MIDI input, no launcher
 - Post-FX off by default
 - Button play instead of guitar
+- Rear touchpad: never a screen touch; optional Rear Touch Strum (off by default, patch 0036)
 
 ## Upstream report queue
 
@@ -352,3 +353,4 @@ with their SceneRenderer), fixed upstream in gd01 1.1.13.
 - 2026-11-14: The user checked the rebased build on hardware: songs, Gamepads Bind to and store scrolling all fine. Bug they reported: entering the store's menu again showed two highlighted items (the default first one and the one left from the last visit). Cause: `Panel::enter()` clears `focus_` before `setFocus(default)` when `retain_last_focus` is FALSE, so the old item's scene state stayed Focused. Patch 0035 resets it to Normal. Checked on hardware by the user. An upstream bug on every platform: listed in the upstream report queue, to report with others later (user's call).
 - 2026-11-14: Data folder moved to `ux0:data/ghvita/` and our names renamed from gd01 to ghvita (log, VPK, ELF, threads, `GHVITA_*` env vars); an old `gd01` folder is moved on start and `config.txt`'s ISO path rewritten. Checked on hardware (runs 20261114-225700, -230138). Details under Phase 1.
 - 2026-11-15: Plan caught up: Phase 1 boxes ticked (its gate is met), Phase 2 shader rewrite ticked, Vita3K dropped. Next: rear touchpad strum (Phase 4, Reddit request).
+- 2026-11-15: Rear Touch Strum built (patch 0036; VPK builds, 0 warnings); the rear touchpad no longer acts as the screen. Next: the user tries it on hardware.

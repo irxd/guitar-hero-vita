@@ -91,12 +91,14 @@ platforms build exactly as upstream.
 | 2026-11-10 | `vita/tests/` | Desktop checks for the shader rewrite and the palette packing; 2026-11-13: accuracy check of the movie fast paths (`movie_fast_check.cpp`) |
 | 2026-11-10 | `tools/` | Toolchain setup, desktop and Vita builds, patch stack, shader dump and validation, GPU memory probe, crash dump decoding, movie decode benchmark, hardware build/deploy/run loop (`vita-loop.sh`) |
 | 2026-11-10 | `README.md`, `CLAUDE.md`, `docs/port-plan.md` | Project documentation |
+| 2026-11-15 | `0036-vita-rear-touch-strum.patch` | `gd-game-01/engine/src/app.cpp`, `gd-game-01/engine/src/input/input.h`, `gd-game-01/engine/src/input/input.cpp`, `gd-game-01/engine/src/ui/select_panels.cpp` | PS Vita: the rear touchpad is kept apart from the screen (SDL reports it as an indirect touch device; upstream took its touches for screen touches, so a finger on the back could press a lane). New Enhanced Settings check Rear Touch Strum, off by default: in a song each finger landing on the rear pad, away from its side edges, strums once |
 
 ## Vita-only differences in behaviour
 
 - No Vulkan upscalers (FSR / DLSS), no HDR, no MIDI input, no launcher.
 - Enhanced Settings defaults as in patch 0001; the Enhanced Settings screen has no venue backdrop.
 - Button play on the Vita's pad instead of a guitar; touch controls off by default.
+- Rear Touch Strum (optional, off by default): a tap on the rear touchpad strums. Otherwise the rear touchpad does nothing (patch 0036).
 - Textures of at most 256 colours are stored paletted and without mip levels (distant surfaces may shimmer slightly).
 - Shaders are rewritten to GLSL ES 1.00; the auto-exposure pass reads its 1x1 level with a texture bias.
 - Songs: the far end of the highway is not faded into the venue (patch 0010).

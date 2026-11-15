@@ -1,0 +1,158 @@
+diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
+index fad1e6bc..91d67832 100644
+--- a/gd-game-01/engine/src/app.cpp
++++ b/gd-game-01/engine/src/app.cpp
+@@ -14,6 +14,7 @@
+ // Modified by irxd on 2026-11-13: PS Vita: movies stretched to the full screen (movieFrame).
+ // Modified by irxd on 2026-11-13: PS Vita: the first screen's fallback name reads GH Vita (drawLogo).
+ // Modified by irxd on 2026-11-14: PS Vita: the graphics backend default stays local (upstream's new Vulkan default left out).
++// Modified by irxd on 2026-11-15: PS Vita: Rear Touch Strum setting (off by default).
+ #include "app.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -184,7 +185,7 @@ std::map<std::string, Json> profileValues(bool deck) {
+     // Crowd on: at most 8 3D members (the widest shots drew ~23, 9 ms a frame).
+     for (auto& [k, v] : std::map<std::string, Json>{{"screen_mode", t("fullscreen")}, {"max_fps", t("30")}, {"internal_res", t("448")},
+                                                     {"bokeh", t("none")}, {"crowd", b(true)}, {"shake_whammy", b(false)},
+-                                                    {"button_layout", t("1")}})
++                                                    {"button_layout", t("1")}, {"rear_strum", b(false)}})
+         d[k] = v;
+ #else
+ #if defined(GD01_STEAM_DECK)
+@@ -2259,6 +2260,9 @@ void App::applyEnhanced() {
+     // Controls: touch (SDL's touch-made mouse events only while it is off), XInput joypads, Rock Band guitars.
+     input_.setTouch(enhancedOn("touch"));
+     input_.setShakeWhammy(enhancedOn("shake_whammy"));
++#if defined(__vita__)
++    input_.setRearStrum(enhancedOn("rear_strum"));
++#endif
+     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, enhancedOn("touch") ? "0" : "1");
+     input_.setGamepadPlay(true);  // XInput controllers and Rock Band guitars are always on
+     input_.setRockBand(true);
+diff --git a/gd-game-01/engine/src/input/input.cpp b/gd-game-01/engine/src/input/input.cpp
+index 2e774f4b..5b0ee7ef 100644
+--- a/gd-game-01/engine/src/input/input.cpp
++++ b/gd-game-01/engine/src/input/input.cpp
+@@ -6,6 +6,7 @@
+ // Modified by irxd on 2026-11-12: PS Vita: Shake for Whammy on the motion sensor.
+ // Modified by irxd on 2026-11-12: PS Vita: Button Layout 2 (D-pad Left, D-pad Up, Triangle, Circle, Cross; optional strum on L / R).
+ // Modified by irxd on 2026-11-12: PS Vita: no keyboard device (Gamepads screen, players).
++// Modified by irxd on 2026-11-15: PS Vita: Rear Touch Strum; the rear touchpad is no longer taken for the screen.
+ #include "input/input.h"
+ 
+ #include <algorithm>
+@@ -103,6 +104,11 @@ constexpr float kSwipe = 60;              // a two-finger swipe moves both finge
+ // least to show (menu units); the song's pause button in the pause corner.
+ constexpr float kButtonX = 1246, kButtonR = 30, kPauseR = 28;
+ constexpr uint64_t kSameNs = 80000000;    // the same press from two devices (menus)
++#if defined(__vita__)
++// PS Vita: Rear Touch Strum ignores this much of the rear touchpad's width at
++// each side (0..1), where the hands' grip rests. [verify] on hardware.
++constexpr float kRearEdge = 0.15f;
++#endif
+ 
+ // controllers.json, version 2 (1.1.7, the universal controls) by Input::Control.
+ const char* const kControlKeys[] = {"start", "select", "menu_up", "menu_down", "guitar_start", "guitar_select", "strum_up",
+@@ -616,10 +622,21 @@ void Input::handle(const SDL_Event& e, std::vector<InputEvent>& out) {
+     case SDL_EVENT_FINGER_DOWN:
+     case SDL_EVENT_FINGER_UP:
+     case SDL_EVENT_FINGER_CANCELED:
++#if defined(__vita__)
++        // PS Vita: SDL also reports the rear touchpad (its touch device
++        // "Back", indirect), with finger ids that can match the screen's.
++        if (SDL_GetTouchDeviceType(e.tfinger.touchID) == SDL_TOUCH_DEVICE_INDIRECT_ABSOLUTE) {
++            rearTouchEvent(e.tfinger, e.type == SDL_EVENT_FINGER_DOWN, out);
++            break;
++        }
++#endif
+         device_ = -2;
+         if (touch_) touchEvent(e.tfinger, e.type == SDL_EVENT_FINGER_DOWN, out);
+         break;
+     case SDL_EVENT_FINGER_MOTION:
++#if defined(__vita__)
++        if (SDL_GetTouchDeviceType(e.tfinger.touchID) == SDL_TOUCH_DEVICE_INDIRECT_ABSOLUTE) break;  // the rear touchpad
++#endif
+         if (touch_) touchMotion(e.tfinger);
+         break;
+     case SDL_EVENT_KEY_DOWN:
+@@ -1355,6 +1372,23 @@ void Input::touchMotion(const SDL_TouchFingerEvent& f) {
+     if (std::abs(fg.mx - fg.x0) > kSlide || std::abs(fg.my - fg.y0) > kSlide) fg.moved = true;
+ }
+ 
++#if defined(__vita__)
++// PS Vita: the rear touchpad. Outside a song, or with Rear Touch Strum off
++// (the default), its touches do nothing; before, they went through
++// touchEvent as screen touches, so a finger landing on the back in a song
++// could press a lane. With it on, in a song, each finger landing on the pad
++// (not at its side edges) strums once: two fingers drummed on the back work
++// like alternate picking. A finger that stays down does nothing more.
++void Input::rearTouchEvent(const SDL_TouchFingerEvent& f, bool down, std::vector<InputEvent>& out) {
++    if (!down || !rearStrum_ || !inGame()) return;
++    if (f.x < kRearEdge || f.x > 1 - kRearEdge) return;
++    if (!rearLogged_) rearLogged_ = true, SDL_Log("input: rear touch strum (first in this run)");
++    const int player = lanes_[0].active ? 0 : 1;
++    emit(out, Action::Strum, true, f.timestamp, ControllerMode::Joypad, player);
++    emit(out, Action::Strum, false, f.timestamp, ControllerMode::Joypad, player);
++}
++#endif
++
+ void Input::touchEvent(const SDL_TouchFingerEvent& f, bool down, std::vector<InputEvent>& out) {
+     const uint64_t ts = f.timestamp;
+     const bool game = inGame();
+diff --git a/gd-game-01/engine/src/input/input.h b/gd-game-01/engine/src/input/input.h
+index ab9ab982..f015545e 100644
+--- a/gd-game-01/engine/src/input/input.h
++++ b/gd-game-01/engine/src/input/input.h
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-15: PS Vita: Rear Touch Strum (the rear touchpad kept apart from the screen).
+ #pragma once
+ 
+ #include <SDL3/SDL.h>
+@@ -228,6 +229,12 @@ public:
+     float shakeWhammyValue() const { return shakeActive_ ? shakeValue_ : 0.0f; }
+     bool shakeWhammyActive() const { return shakeActive_; }
+     std::vector<std::pair<float, float>> takeMenuTaps() { return std::move(menuTaps_); }
++#if defined(__vita__)
++    // PS Vita: Rear Touch Strum (Enhanced Settings, off by default). The rear
++    // touchpad is never a screen touch; with this on, in a song, each finger
++    // landing on it strums once (see rearTouchEvent in input.cpp).
++    void setRearStrum(bool on) { rearStrum_ = on; }
++#endif
+ 
+     // The touch settings (Gamepads screen > Touch Screen; controllers.json "touch").
+     static constexpr int kTouchOptions = 4;
+@@ -327,6 +334,10 @@ private:
+     void closeShake();
+     SDL_Sensor* shakeSensor_ = nullptr;
+     bool shakeOn_ = true, shakeTried_ = false, shakeActive_ = false, shakeGravInit_ = false;
++#if defined(__vita__)
++    bool rearStrum_ = false, rearLogged_ = false;
++    void rearTouchEvent(const SDL_TouchFingerEvent& f, bool down, std::vector<InputEvent>& out);
++#endif
+     float shakeValue_ = 0, shakeGrav_[3] = {0, 0, 0};
+     uint64_t shakeLastSampleNs_ = 0, shakeActiveUntilNs_ = 0, shakeLastStrongNs_ = 0;
+     int shakeStrongCount_ = 0;
+diff --git a/gd-game-01/engine/src/ui/select_panels.cpp b/gd-game-01/engine/src/ui/select_panels.cpp
+index 45a64a15..4eadf593 100644
+--- a/gd-game-01/engine/src/ui/select_panels.cpp
++++ b/gd-game-01/engine/src/ui/select_panels.cpp
+@@ -5,6 +5,7 @@
+ // Modified by irxd on 2026-11-11: PS Vita: Performance Mode (30 FPS, 60 FPS, Notes Only) and the Crowd setting.
+ // Modified by irxd on 2026-11-12: PS Vita: Enhanced Settings without the settings the Vita cannot use; Shake for Whammy shown.
+ // Modified by irxd on 2026-11-12: PS Vita: Button Layout setting.
++// Modified by irxd on 2026-11-15: PS Vita: Rear Touch Strum setting.
+ #include "ui/select_panels.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -1094,6 +1095,9 @@ private:
+             {Kind::Check, "shake_whammy", "Shake for Whammy", true,
+              "Shake the Vita during a song to use the whammy bar: keep shaking to hold it, stop to let go. Whammy bends "
+              "the note and fills Star Power faster on a Star Power note. The right stick keeps working."},
++            {Kind::Check, "rear_strum", "Rear Touch Strum", true,
++             "In a song, every finger that lands on the rear touchpad strums once: drum two fingers on the back for fast "
++             "runs of one note. A finger resting on the pad does nothing, and neither do touches at its left and right edges."},
+ #endif
+             {Kind::Check, "touch", "Enable Touch Controls", true,
+              "Play on a touch screen; also shows the on-screen buttons. In the menus a tap is a click. In a song, "
