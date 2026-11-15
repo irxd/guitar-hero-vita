@@ -1,22 +1,23 @@
 diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
-index 91d67832..2f3d035e 100644
+index 91d67832..a485be95 100644
 --- a/gd-game-01/engine/src/app.cpp
 +++ b/gd-game-01/engine/src/app.cpp
 @@ -15,6 +15,7 @@
  // Modified by irxd on 2026-11-13: PS Vita: the first screen's fallback name reads GH Vita (drawLogo).
  // Modified by irxd on 2026-11-14: PS Vita: the graphics backend default stays local (upstream's new Vulkan default left out).
  // Modified by irxd on 2026-11-15: PS Vita: Rear Touch Strum setting (off by default).
-+// Modified by irxd on 2026-11-15: PS Vita: the title screen shows the port's version and the gd01 version (drawVersion).
++// Modified by irxd on 2026-11-15: PS Vita: the title screen shows the port's version (drawVersion).
  #include "app.h"
  
  #include <SDL3/SDL.h>
-@@ -1645,7 +1646,12 @@ void App::drawBackendLabel() {
+@@ -1645,7 +1646,13 @@ void App::drawBackendLabel() {
  // size, in white.
  void App::drawVersion() {
      if (!ui_ || movie_ || screen_ != Screen::Menu || ui_->currentScreen() != "main") return;
 +#if defined(__vita__)
-+    // PS Vita: the port's own version, then the gd01 version it is based on.
-+    const std::string v = std::string("v") + GHVITA_VERSION + " (gd01 " + GD01_VERSION + ")";
++    // PS Vita: the port's own version (the gd01 version it is based on is in
++    // ghvita.log and the controller report; both on the title screen were too long).
++    const std::string v = std::string("v") + GHVITA_VERSION;
 +#else
      const std::string v = std::string("v") + GD01_VERSION;
 +#endif

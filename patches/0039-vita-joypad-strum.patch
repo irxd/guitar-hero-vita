@@ -1,0 +1,73 @@
+diff --git a/gd-game-01/engine/src/game/player.cpp b/gd-game-01/engine/src/game/player.cpp
+index ddebaede..2a9ee616 100644
+--- a/gd-game-01/engine/src/game/player.cpp
++++ b/gd-game-01/engine/src/game/player.cpp
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
++// Modified by irxd on 2026-11-15: PS Vita: in joypad mode a strum plays the held frets again when that hits a note (never a miss).
+ #include "game/player.h"
+ 
+ #include <cstdio>
+@@ -70,6 +71,24 @@ bool Player::phraseIntact(int phrase) const {
+ 
+ void Player::strum(float t) {
+     if (std::getenv("GD01_HOPOLOG")) std::fprintf(stderr, "strum at %.1f (held %02x)\n", t, pressed_);
++#if defined(__vita__)
++    // PS Vita: in joypad mode (the Vita pad's default) a fret press is the
++    // hit and the original ignores strums, so the D-pad / L-R strum and Rear
++    // Touch Strum did nothing (hardware, 2026-11-15). Here a strum plays the
++    // held frets again, but only when that hits a note not hit yet: a strum
++    // can help (fast runs of one note or chord) and never costs a miss.
++    if (mode_ != ControllerMode::Guitar && !failed_ && pressed_ != 0 && lastStrumMs_ + kStrumDebounceMs < t) {
++        const int i = nearestGem(t);
++        if (i >= 0 && i >= firstGem_ && !hit_[size_t(i)] && owned(i) && inSlop(chart_.gems[size_t(i)].ms, t)) {
++            const Gem& g = chart_.gems[size_t(i)];
++            const int fret = highestFret(pressed_);
++            if (g.fretCount() == 1 ? lowestFret(g.frets) == fret : chordMatch(g.frets, held_)) {
++                lastStrumMs_ = t;
++                watcherStrum(t, fret, false);
++            }
++        }
++    }
++#endif
+     if (mode_ != ControllerMode::Guitar || failed_) return;
+     if (lastStrumMs_ + kStrumDebounceMs < t) {
+         lastStrumMs_ = t;
+diff --git a/gd-game-01/engine/src/input/input.cpp b/gd-game-01/engine/src/input/input.cpp
+index 2c0d80a4..043d94b8 100644
+--- a/gd-game-01/engine/src/input/input.cpp
++++ b/gd-game-01/engine/src/input/input.cpp
+@@ -1389,6 +1389,8 @@ void Input::touchMotion(const SDL_TouchFingerEvent& f) {
+ // could press a lane. With it on, in a song, each finger landing on the pad
+ // (not at its side edges) strums once: two fingers drummed on the back work
+ // like alternate picking. A finger that stays down does nothing more.
++// In joypad mode (the Vita pad's default) a strum plays the held frets again
++// when that hits a note (Player::strum, patch 0039).
+ void Input::rearTouchEvent(const SDL_TouchFingerEvent& f, bool down, std::vector<InputEvent>& out) {
+     if (!down || !rearStrum_ || !inGame()) return;
+     if (f.x < kRearEdge || f.x > 1 - kRearEdge) return;
+diff --git a/gd-game-01/engine/src/ui/select_panels.cpp b/gd-game-01/engine/src/ui/select_panels.cpp
+index 40f31642..38824952 100644
+--- a/gd-game-01/engine/src/ui/select_panels.cpp
++++ b/gd-game-01/engine/src/ui/select_panels.cpp
+@@ -7,6 +7,7 @@
+ // Modified by irxd on 2026-11-12: PS Vita: Button Layout setting.
+ // Modified by irxd on 2026-11-15: PS Vita: Rear Touch Strum setting.
+ // Modified by irxd on 2026-11-15: PS Vita: Shake for Whammy's help names both sticks.
++// Modified by irxd on 2026-11-15: PS Vita: Rear Touch Strum's help reworded (hold the fret, tap to strum).
+ #include "ui/select_panels.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -1097,8 +1098,9 @@ private:
+              "Shake the Vita during a song to use the whammy bar: keep shaking to hold it, stop to let go. Whammy bends "
+              "the note and fills Star Power faster on a Star Power note. Both sticks keep working."},
+             {Kind::Check, "rear_strum", "Rear Touch Strum", true,
+-             "In a song, every finger that lands on the rear touchpad strums once: drum two fingers on the back for fast "
+-             "runs of one note. A finger resting on the pad does nothing, and neither do touches at its left and right edges."},
++             "In a song, a tap on the rear touchpad strums: hold the fret and drum two fingers on the back for fast "
++             "runs of one note or chord. A finger resting on the pad does nothing, and neither do touches at its left "
++             "and right edges."},
+ #endif
+             {Kind::Check, "touch", "Enable Touch Controls", true,
+              "Play on a touch screen; also shows the on-screen buttons. In the menus a tap is a click. In a song, "

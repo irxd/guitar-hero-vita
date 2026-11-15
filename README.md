@@ -28,7 +28,8 @@ Working on the Vita:
   | Layout 1 (default) | D-pad ← | L | R | ○ | ✕ | D-pad ↑/↓ |
   | Layout 2 | D-pad ← | D-pad ↑ | △ | ○ | ✕ | L / R (optional) |
 
-  A fret press plays the note on its own, so strumming is optional. Single buttons can
+  A fret press plays the note on its own, so strumming is optional; a strum while holding
+  frets plays them again (for fast runs of one note), and never counts as a miss. Single buttons can
   be rebound in the Gamepads screen, which overrides the layout.
 - Whammy on either analog stick; Star Power on Select
 - Optional: tap the rear touchpad to strum (Enhanced Settings → Rear Touch Strum) and shake
