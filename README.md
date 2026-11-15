@@ -47,7 +47,7 @@ Working on the Vita:
 
   | | Green | Red | Yellow | Blue | Orange | Strum |
   |---|---|---|---|---|---|---|
-  | Layout 1 (default) | D-pad ← | L | R | ○ | ✕ | D-pad ↑/↓ |
+  | Layout 1 (default) | D-pad ← | L | R | ○ | ✕ | D-pad ↑/↓ (optional) |
   | Layout 2 | D-pad ← | D-pad ↑ | △ | ○ | ✕ | L / R (optional) |
 
   A fret press plays the note on its own, so strumming is optional; a strum while holding
