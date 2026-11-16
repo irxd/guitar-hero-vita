@@ -14,11 +14,20 @@
 //   - the No Venue cheat: Notes Only does the same and loads no stage.
 #pragma once
 
+#include <cstdlib>
 #include <string_view>
 
 namespace vita {
 
 inline bool hiddenSetting(std::string_view key) {
+    // Measuring only: GHVITA_UNHIDE=key,key (args.txt) lets enhanced.json set
+    // those keys (e.g. internal_res, to see how the GPU time scales with pixels).
+    if (const char* unhide = std::getenv("GHVITA_UNHIDE"))
+        for (std::string_view list = unhide; !list.empty();) {
+            const size_t comma = list.find(',');
+            if (list.substr(0, comma) == key) return false;
+            list = comma == std::string_view::npos ? std::string_view{} : list.substr(comma + 1);
+        }
     static constexpr std::string_view kHidden[] = {
         // cannot work, or would break the game
         "mode_steam_deck", "mode_original", "mode_clean", "mode_max_hd", "mode_max_4k", "mode_budget",

@@ -705,7 +705,18 @@ void hookCompileShader(GLuint shader) {
         SDL_Log("vita: glCompileShader shader %u ...", shader);
         logMemory("before");
     }
+    // Half precision for fragment shaders (vitaGL's vglUseLowPrecision: float
+    // -> half while it translates the GLSL, here only for that shader). The
+    // frame is fragment bound at 60 FPS (2026-11-16: drawing more pixels made
+    // it slower); vertex shaders keep full precision for positions.
+    static const bool lowpFrag = [] {
+        const char* e = std::getenv("GHVITA_LOWP_FRAG");
+        return e && std::atoi(e) != 0;
+    }();
+    const bool lowp = lowpFrag && gShaders[shader].stage == vita::ShaderStage::Fragment;
+    if (lowp) vglUseLowPrecision(GL_TRUE);
     realCompileShader(shader);
+    if (lowp) vglUseLowPrecision(GL_FALSE);
     if (!kTraceShaders) return;
     GLint ok = 0;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);

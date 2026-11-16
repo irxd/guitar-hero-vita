@@ -291,6 +291,29 @@ Steps, each measured on hardware against the baseline, one at a time:
 3. **Crowd at 60:** after step 2, measure again; then fewer crowd draws (merged pieces on the
    CPU or bones in a texture, see run 18) if the crowd still does not fit.
 
+**Hardware run 21 (2026-11-16): baseline and GPU.** I Love Rock and Roll, seed 1, Max FPS 60,
+`GHVITA_PHASES=1`, 5 s windows:
+- Crowd off: 46.9-58.4 FPS, cpu 16.6-18.7 ms, swap wait 0.5-3.4 ms, 63-257 frames over 17 ms
+  a window. Per frame: stage 2.8-3.9 ms (73-122 draws), band 4.2-4.5 (125-135), rest 2.4-2.8
+  (21-35 draws; particles), track 1.9-3.7, guitarist 2.2, script 0.9, band update 0.5, begin
+  frame + present 0.6. About 33-35 us a draw in the scene renderer.
+- Crowd on: 32.9-58.4 FPS, cpu 16.9-24.3 ms, swap wait up to 6.9 ms in the widest shots
+  (~500 draws).
+- **The GPU is at the limit too.** `GHVITA_GPUTIME=1` tail: 15-25 ms a frame crowd off,
+  18-31 ms crowd on. The tail is not a clean GPU time (see the next point), but in normal play
+  the frame time is about max(cpu, gpu): light shots cpu ≈ gpu ≈ 17 ms (58 FPS), the widest
+  crowd shot gpu ≈ 30 ms (cpu 23.6 + wait 6.9; 33 FPS). So CPU work alone cannot reach 60.
+- **Fragment bound, but not on shader math:** internal_res 0 (native 960x544, no off-screen
+  target or blit; 720 fell back to native too) had a *lower* glFinish tail, yet in normal play
+  was slower: 36-57 FPS, swap wait 4-10 ms (48% more pixels). 448 stays. Half-precision
+  fragment shaders (`GHVITA_LOWP_FRAG=1`: `vglUseLowPrecision` around each fragment shader's
+  compile) changed nothing (~51-52 FPS on average either way, same swap wait); off.
+- Next suspect: texture bandwidth. Paletted textures keep **no mip levels** (run 7), so far
+  textures are read at full size and miss the texture cache. To test: mipmaps for the venue
+  textures (memory: ~+33% of the paletted size, or a mipmapped compressed format).
+- Measuring aids added: perf line counts frames over 17 ms; `GHVITA_GPUTIME=1`;
+  `GHVITA_UNHIDE=key,...` (enhanced.json may set those hidden keys); `GHVITA_LOWP_FRAG=1`.
+
 vitaGL pitfalls to remember:
 - `glDrawArrays` over 49152 vertices silently draws garbage: split such draws.
 - Fragment shaders get 16 uniform vec4s, vertex shaders 128.
@@ -411,3 +434,4 @@ with their SceneRenderer), fixed upstream in gd01 1.1.13.
 - 2026-11-16: v0.1.1 (bug fix: 0041, Lefty Flip): version 0.1.1, APP_VER 01.01, notes docs/releases/v0.1.1.md (also link the bug report form). Built with `tools/release-vita.sh`.
 - 2026-11-16: Released v0.1.1 (alpha): https://github.com/irxd/guitar-hero-vita/releases/tag/v0.1.1 (pre-release, tag v0.1.1 on 9294393; VPK sha256 afedd85d…10e6, source f33a9adc…d0e). The Lefty Flip fix (0041) for the first player report.
 - 2026-11-16: v0.2.0 goal set (user): a stable 60 FPS without the crowd, with it if possible. Plan under "v0.2.0: 60 FPS" (baseline + GPU gate, vitaGL speed hacks and particles, GL on its own core, then the crowd). Perf line now counts frames over 17 ms; `GHVITA_GPUTIME=1` times the GPU tail after each swap. Built (0 warnings), not yet run on hardware.
+- 2026-11-16: Hardware run 21 (baseline for v0.2.0): at 60 FPS the GPU is at the limit as well as the CPU (light shots both ~17 ms, widest crowd shot GPU ~30 ms). Native resolution is slower than 448 in play (fragment bound); half-precision fragment shaders gain nothing. Next: test mipmaps on venue textures (bandwidth), then the CPU steps. Vita's enhanced.json restored to the user's (max_fps 60).
