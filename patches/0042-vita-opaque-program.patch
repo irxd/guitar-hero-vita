@@ -1,0 +1,187 @@
+diff --git a/gd-game-01/engine/src/render/renderer.cpp b/gd-game-01/engine/src/render/renderer.cpp
+--- a/gd-game-01/engine/src/render/renderer.cpp
++++ b/gd-game-01/engine/src/render/renderer.cpp
+@@ -3,10 +3,13 @@
+ // Modified by irxd on 2026-11-11: PS Vita: frame phase timing of drawMesh (diagnostic).
+ // Modified by irxd on 2026-11-11: PS Vita: Max FPS 30 (default, steady) or 60, paced by vitaGL's vblank interval.
+ // Modified by irxd on 2026-11-11: PS Vita: bone palette skinning, so a character's skinned pieces can be merged into fewer draws.
++// Modified by irxd on 2026-11-17: PS Vita: a scene program without the alpha cutout's discard, for draws with no cutout.
+ #include "render/renderer.h"
+ #if defined(__vita__)
+ #include "vita_display.h"  // the Vita port's vita/src: vblank interval
+ #include "vita_profile.h"  // the Vita port's vita/src: frame phase timing
++
++#include <cstdlib>  // getenv (GHVITA_OPAQUE_PROGRAM)
+ #endif
+ 
+ #include <algorithm>
+@@ -307,6 +310,9 @@
+     uLightCount_ = gl::glGetUniformLocation(program_, "uLightCount");
+     uLightDir_ = gl::glGetUniformLocation(program_, "uLightDir");
+     uLightColor_ = gl::glGetUniformLocation(program_, "uLightColor");
++#if defined(__vita__)
++    initVitaOpaqueProgram();
++#endif
+ 
+     gl::glGenVertexArrays(1, &vao_);
+     gl::glGenBuffers(1, &vbo_);
+@@ -323,6 +329,74 @@
+     return true;
+ }
+ 
++#if defined(__vita__)
++// PS Vita: the scene program again, its fragment shader without the cutout's
++// discard. Used only when every uniform the draws set has the same location
++// in both programs (else: off, logged; the draws keep program_).
++// GHVITA_OPAQUE_PROGRAM=0 (args.txt) turns it off for comparisons.
++void Renderer::initVitaOpaqueProgram() {
++    const char* env = std::getenv("GHVITA_OPAQUE_PROGRAM");
++    if (env && std::atoi(env) == 0) {
++        SDL_Log("vita: opaque scene program off (GHVITA_OPAQUE_PROGRAM=0)");
++        return;
++    }
++    std::string frag = kFragmentShader;
++    const std::string cut = "    if (c.a <= uCutout) discard;\n";
++    const size_t at = frag.find(cut);
++    if (at == std::string::npos) {
++        SDL_Log("vita: opaque scene program: no cutout line in the fragment shader; off");
++        return;
++    }
++    frag.erase(at, cut.size());
++    std::string error;
++    unsigned vs = compile(GL_VERTEX_SHADER, kVertexShader, error);
++    unsigned fs = vs ? compile(GL_FRAGMENT_SHADER, frag.c_str(), error) : 0;
++    if (!fs) {
++        if (vs) gl::glDeleteShader(vs);
++        SDL_Log("vita: opaque scene program: %s; off", error.c_str());
++        return;
++    }
++    unsigned p = gl::glCreateProgram();
++    gl::glAttachShader(p, vs);
++    gl::glAttachShader(p, fs);
++    gl::glLinkProgram(p);
++    gl::glDeleteShader(vs);
++    gl::glDeleteShader(fs);
++    GLint ok = 0;
++    gl::glGetProgramiv(p, GL_LINK_STATUS, &ok);
++    if (!ok) {
++        SDL_Log("vita: opaque scene program: link failed; off");
++        gl::glDeleteProgram(p);
++        return;
++    }
++    // Each program's locations, in the order of vitaUseLocations' list
++    // (uCutout is -1 in the opaque one: its writes are no-ops there).
++    static const char* const kNames[kVitaUniforms] = {
++        "uMvp",   "uJitter",   "uTex",   "uUseTex", "uCutout",   "uUvOffset", "uTint",    "uSkin",       "uBones",
++        "uBoneRows", "uLit",   "uMatFlags", "uColorScale", "uFog", "uFogColor", "uModel", "uTexgen",     "uTexU",
++        "uTexO",  "uEye",      "uCamRight", "uCamUp", "uTexDecal", "uAmbient", "uLightCount", "uLightDir", "uLightColor"};
++    for (int i = 0; i < kVitaUniforms; ++i) {
++        vitaLocs_[0][size_t(i)] = gl::glGetUniformLocation(program_, kNames[i]);
++        vitaLocs_[1][size_t(i)] = gl::glGetUniformLocation(p, kNames[i]);
++    }
++    vitaOpaqueProgram_ = p;
++    vitaLocsOpaque_ = false;
++    SDL_Log("vita: opaque scene program on (no discard for draws without the alpha cutout)");
++}
++
++void Renderer::vitaUseLocations(bool opaque) {
++    if (opaque == vitaLocsOpaque_ || !vitaOpaqueProgram_) return;
++    int* const members[kVitaUniforms] = {&uMvp_,        &uJitter_,   &uTex_,      &uUseTex_,      &uCutout_,     &uUvOffset_,
++                                         &uTint_,       &uSkin_,     &uBones_,    &uBoneRows_,    &uLit_,        &uMatFlags_,
++                                         &uColorScale_, &uFog_,      &uFogColor_, &uModel_,       &uTexgen_,     &uTexU_,
++                                         &uTexO_,       &uEye_,      &uCamRight_, &uCamUp_,       &uTexDecal_,   &uAmbient_,
++                                         &uLightCount_, &uLightDir_, &uLightColor_};
++    const auto& locs = vitaLocs_[opaque ? 1 : 0];
++    for (int i = 0; i < kVitaUniforms; ++i) *members[i] = locs[size_t(i)];
++    vitaLocsOpaque_ = opaque;
++}
++#endif
++
+ void Renderer::shutdown() {
+     if (core_) return core_->shutdown();
+     if (!context_) return;
+@@ -337,6 +411,9 @@
+     gl::glDeleteBuffers(1, &vbo_);
+     gl::glDeleteVertexArrays(1, &vao_);
+     gl::glDeleteProgram(program_);
++#if defined(__vita__)
++    if (vitaOpaqueProgram_) gl::glDeleteProgram(vitaOpaqueProgram_);
++#endif
+     SDL_GL_DestroyContext(context_);
+     context_ = nullptr;
+ }
+@@ -916,7 +993,14 @@
+ }
+ 
+ void Renderer::applyState(int texture, Blend blend, bool depthTest, bool depthWrite, const float* mvp) {
++#if defined(__vita__)
++    const bool opaque = vitaOpaqueNext_ && vitaOpaqueProgram_;
++    gl::glUseProgram(opaque ? vitaOpaqueProgram_ : program_);
++    vitaUseLocations(opaque);
++    vitaOpaqueNext_ = false;
++#else
+     gl::glUseProgram(program_);
++#endif
+     gl::glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp ? mvp : screenMvp_);
+     gl::glActiveTexture(GL_TEXTURE0);
+     gl::glUniform1i(uTex_, 0);
+@@ -1012,6 +1096,7 @@
+     struct PopAtExit {
+         ~PopAtExit() { vita::profilePop(); }
+     } popAtExit;
++    vitaOpaqueNext_ = !st.alphaCutout;  // the program without discard (its cutout would be -1)
+ #endif
+     applyState(st.texture, st.blend, st.depthTest, st.depthWrite, mvp);
+     gl::glUniform1f(uCutout_, st.alphaCutout ? 0.5f : -1.0f);
+@@ -1207,7 +1292,19 @@
+ 
+ void Renderer::setJitter(float x, float y) {
+     gl::glUseProgram(program_);
++#if defined(__vita__)
++    vitaUseLocations(false);
++#endif
+     gl::glUniform2f(uJitter_, x, y);
++#if defined(__vita__)
++    if (vitaOpaqueProgram_) {
++        gl::glUseProgram(vitaOpaqueProgram_);
++        vitaUseLocations(true);
++        gl::glUniform2f(uJitter_, x, y);
++        gl::glUseProgram(program_);
++        vitaUseLocations(false);
++    }
++#endif
+ }
+ 
+ bool Renderer::beginScene() {
+diff --git a/gd-game-01/engine/src/render/renderer.h b/gd-game-01/engine/src/render/renderer.h
+--- a/gd-game-01/engine/src/render/renderer.h
++++ b/gd-game-01/engine/src/render/renderer.h
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-11: PS Vita: bone palette skinning, so a character's skinned pieces can be merged into fewer draws.
++// Modified by irxd on 2026-11-17: PS Vita: a scene program without the alpha cutout's discard, for draws with no cutout.
+ #pragma once
+ 
+ #include <SDL3/SDL.h>
+@@ -246,6 +247,20 @@
+     SDL_Window* window_ = nullptr;
+     SDL_GLContext context_ = nullptr;
+     unsigned program_ = 0, vao_ = 0, vbo_ = 0;
++#if defined(__vita__)
++    // PS Vita: the scene program without the alpha cutout's discard, for the
++    // draws with no cutout (same result: their cutout is -1). A shader that
++    // can discard turns off the GPU's hidden surface removal for its pixels.
++    unsigned vitaOpaqueProgram_ = 0;
++    bool vitaOpaqueNext_ = false;  // applyState: use it for this draw
++    // vitaGL numbers uniforms per program, so each keeps its own locations;
++    // the u*_ members hold the current program's (vitaUseLocations).
++    static constexpr int kVitaUniforms = 27;
++    std::array<int, kVitaUniforms> vitaLocs_[2]{};  // [0] program_, [1] the opaque one
++    bool vitaLocsOpaque_ = false;
++    void initVitaOpaqueProgram();
++    void vitaUseLocations(bool opaque);
++#endif
+     int uMvp_ = -1, uTex_ = -1, uUseTex_ = -1;
+     int uTexgen_ = -1, uTexU_ = -1, uTexO_ = -1, uEye_ = -1, uCamRight_ = -1, uCamUp_ = -1, uTexDecal_ = -1;
+     unsigned white_ = 0;

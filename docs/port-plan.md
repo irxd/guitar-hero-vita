@@ -322,6 +322,18 @@ Steps, each measured on hardware against the baseline, one at a time:
   - Note: the alpha cutout is a uniform, so every scene draw runs a shader with a `discard`
     branch, which on SGX costs hidden-surface removal even when it is not taken. A
     no-discard program variant for opaque materials is a candidate GPU win for the whole scene.
+- **Patch 0042 (2026-11-17): opaque scene program.** The scene shader's alpha cutout was a
+  uniform (`-1` = none), so every draw ran a fragment shader containing `discard`. A second
+  program without that line now serves every draw with no cutout (identical output). vitaGL
+  numbers uniforms per program (the first try found `uMvp` at a different location and
+  switched itself off), so each program keeps its own location set, swapped on a change.
+  Same benchmark, 28 windows of 5 s:
+  - crowd off: 52.2 → **56.3 FPS** on average, swap wait 1.68 → 0.23 ms, cpu 17.6 ms both;
+  - crowd on: 46.1 → **49.4 FPS**, swap wait 2.12 → 0.24 ms; widest shot 33 → 39.6 FPS
+    (swap wait 6.9 → 1.1-1.4 ms).
+  - The GPU is no longer the limit anywhere in this song: what is left is CPU (frames over
+    17 ms per window unchanged, ~158 crowd off). Next: the CPU steps (speed hacks, particles,
+    GL thread), then measure the crowd again.
 - Measuring aids added: perf line counts frames over 17 ms; `GHVITA_GPUTIME=1`;
   `GHVITA_UNHIDE=key,...` (enhanced.json may set those hidden keys); `GHVITA_LOWP_FRAG=1`.
 
@@ -447,3 +459,4 @@ with their SceneRenderer), fixed upstream in gd01 1.1.13.
 - 2026-11-16: v0.2.0 goal set (user): a stable 60 FPS without the crowd, with it if possible. Plan under "v0.2.0: 60 FPS" (baseline + GPU gate, vitaGL speed hacks and particles, GL on its own core, then the crowd). Perf line now counts frames over 17 ms; `GHVITA_GPUTIME=1` times the GPU tail after each swap. Built (0 warnings), not yet run on hardware.
 - 2026-11-16: Hardware run 21 (baseline for v0.2.0): at 60 FPS the GPU is at the limit as well as the CPU (light shots both ~17 ms, widest crowd shot GPU ~30 ms). Native resolution is slower than 448 in play (fragment bound); half-precision fragment shaders gain nothing. Next: test mipmaps on venue textures (bandwidth), then the CPU steps. Vita's enhanced.json restored to the user's (max_fps 60).
 - 2026-11-16: Flat-only crowd at 60 tested (user's idea): little gain; the sprites themselves cost the GPU ~8-10 ms in wide shots. Experiment switches removed; build back to the committed state (the Vita still runs the experiment eboot until the next deploy; its switches are off unless set in args.txt).
+- 2026-11-17: Patch 0042, opaque scene program (no discard for draws without the alpha cutout): GPU no longer the limit; crowd off 52.2 → 56.3 FPS, crowd on 46.1 → 49.4 (widest shot 33 → 39.6). The user's visual check is still to do. Next: CPU.
