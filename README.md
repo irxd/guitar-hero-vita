@@ -35,8 +35,7 @@ Settings, saves and the log (`ghvita.log`, attach it to bug reports) are also st
 
 ## Status
 
-**v0.1.0 (alpha)**, the first public build. Tested on a retail PS Vita with our own disc
-image. Install steps, requirements and known issues: [docs/releases/v0.1.0.md](docs/releases/v0.1.0.md).
+**v0.1.0 (alpha)**, the first public build. Tested on a retail PS Vita. Install steps, requirements and known issues: [docs/releases/v0.1.0.md](docs/releases/v0.1.0.md).
 
 Working on the Vita:
 
@@ -58,7 +57,7 @@ Working on the Vita:
   Vita's own buttons: both control player 1
 - Optional: tap the rear touchpad to strum (Enhanced Settings → Rear Touch Strum) and shake
   the Vita for whammy (Shake for Whammy), both off by default
-- Our own LiveArea art and bubble icon ("GH Vita")
+- LiveArea art and bubble icon ("GH Vita")
 - Memory stays stable however many songs you play
 - Movies (intro and in-game videos) play in sync with their sound at their full 30
   pictures a second, stretched to the full screen
