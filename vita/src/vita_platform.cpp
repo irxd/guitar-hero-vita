@@ -17,6 +17,7 @@
 //   SDL_GetBasePath          -> ux0:data/ghvita/ (the ISO is picked up there)
 //   SDL_GetPrefPath          -> ux0:data/ghvita/ (config, career, enhanced settings)
 //   SDL_SetLogOutputFunction -> the same function, run by a log writer thread
+//   sceCtrlPeekBufferPositive2 (SDL's Vita joystick driver) -> port 1 is read as port 0
 //
 // Before main: the data folder is created, GD01_LOG points the log at
 // ux0:data/ghvita/ghvita.log (main.cpp's openLogFile), and the clocks go to max.
@@ -25,6 +26,7 @@
 #include <SDL3/SDL.h>
 
 #include <malloc.h>
+#include <psp2/ctrl.h>
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/clib.h>
@@ -1172,6 +1174,18 @@ bool __wrap_SDL_GL_ExtensionSupported(const char* extension) {
     for (const char* p = std::strstr(all, extension); p; p = std::strstr(p + 1, extension))
         if ((p == all || p[-1] == ' ') && (p[n] == ' ' || p[n] == '\0')) return true;
     return false;
+}
+
+// SDL's first controller reads port 1 and falls back to port 0 (the Vita's own
+// buttons) only when port 1 does not exist. With ds34vita a DualShock or
+// DualSense takes port 1, so the Vita's buttons stopped working (hardware,
+// 2026-11-16). Port 0 carries the Vita's buttons plus, under ds34vita, the first
+// external controller's, as other games read it. A second external controller
+// stays on port 2 (SDL's second controller: player 2). On a PS TV ports 0 and 1
+// are the same controller.
+int __real_sceCtrlPeekBufferPositive2(int port, SceCtrlData* pad, int count);
+int __wrap_sceCtrlPeekBufferPositive2(int port, SceCtrlData* pad, int count) {
+    return __real_sceCtrlPeekBufferPositive2(port == 1 ? 0 : port, pad, count);
 }
 
 const char* __wrap_SDL_GetBasePath(void) { return kDataDir; }

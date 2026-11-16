@@ -82,7 +82,8 @@ add_executable(ghvita ${GD01_SOURCES} src/vita_platform.cpp src/glsl_es100.cpp s
 # upstream sources stay unmodified.
 foreach(sym SDL_CreateWindow SDL_GL_CreateContext SDL_GL_DestroyContext SDL_GL_MakeCurrent
             SDL_GL_SwapWindow SDL_GL_SetSwapInterval SDL_GL_GetProcAddress SDL_GL_ExtensionSupported
-            SDL_GetBasePath SDL_GetPrefPath SDL_SetLogOutputFunction)
+            SDL_GetBasePath SDL_GetPrefPath SDL_SetLogOutputFunction
+            sceCtrlPeekBufferPositive2)  # SDL's port 1 read goes to port 0 (ds34vita, see the .cpp)
   target_link_options(ghvita PRIVATE "-Wl,--wrap=${sym}")
 endforeach()
 # vita/src is on the path for the patches' Vita headers (e.g. movie_worker.h in patch 0006).
