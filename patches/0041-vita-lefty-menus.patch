@@ -1,0 +1,27 @@
+diff --git a/gd-game-01/engine/src/input/input.cpp b/gd-game-01/engine/src/input/input.cpp
+--- a/gd-game-01/engine/src/input/input.cpp
++++ b/gd-game-01/engine/src/input/input.cpp
+@@ -9,6 +9,7 @@
+ // Modified by irxd on 2026-11-15: PS Vita: Rear Touch Strum; the rear touchpad is no longer taken for the screen.
+ // Modified by irxd on 2026-11-15: PS Vita: whammy on the left stick too.
+ // Modified by irxd on 2026-11-15: PS Vita: the controller report names the port's version.
++// Modified by irxd on 2026-11-16: PS Vita: Lefty Flip's fret order only in a song (no double select in the menus).
+ #include "input/input.h"
+ 
+ #include <algorithm>
+@@ -906,7 +907,15 @@
+         switch (C(c)) {
+         case C::Green: case C::Red: case C::Yellow: case C::Blue: case C::Orange: {
+             int fret = int(c) - int(C::Green);
++#if defined(__vita__)
++            // PS Vita (a bug on every platform): lefty_joypad only in a song. In the
++            // menus Cross (orange) became green, a select on top of its own Confirm, so
++            // every Cross press selected twice: the Lefty Flip toggle flipped back on at
++            // once, and an error screen re-opened as soon as it closed. Circle likewise backed twice.
++            if (lefty && joypad && inGame()) fret = 4 - fret;  // lefty_joypad: X R2 R1 L1 L2
++#else
+             if (lefty && joypad) fret = 4 - fret;  // lefty_joypad: X R2 R1 L1 L2
++#endif
+             if (play) on(Action(int(Action::Fret0) + fret));
+             break;
+         }
