@@ -64,11 +64,13 @@ Working on the Vita:
 Testing so far:
 
 - **Partly tested:** Career mode, tutorials, the Gamepads screen
-- **Not tested:** multiplayer (face-off), which needs a second controller (a PS TV, or a
-  Vita with a DualShock plugin such as ds4vita)
 
 Known limitations:
 
+- **Two-player (face-off) is not supported yet:** with two DualSense controllers on
+  ds34vita, the second one stops responding after a while and needs a Bluetooth restart.
+  Not yet known whether ds34vita or the port causes it. With one external controller, the
+  Vita's own buttons and that controller both control player 1
 - **Vita-only differences from the PC version:** no post-processing effects by default
   (bloom, depth of field), no fade at the far end of the highway, no AI upscaling, HDR or
   MIDI guitars
