@@ -1185,7 +1185,33 @@ bool __wrap_SDL_GL_ExtensionSupported(const char* extension) {
 // are the same controller.
 int __real_sceCtrlPeekBufferPositive2(int port, SceCtrlData* pad, int count);
 int __wrap_sceCtrlPeekBufferPositive2(int port, SceCtrlData* pad, int count) {
-    return __real_sceCtrlPeekBufferPositive2(port == 1 ? 0 : port, pad, count);
+    const int ret = __real_sceCtrlPeekBufferPositive2(port == 1 ? 0 : port, pad, count);
+    // GD01_PADLOG=1: each port's button changes and read errors, for controller reports.
+    static int log = -1;
+    if (log < 0) log = SDL_getenv("GD01_PADLOG") ? 1 : 0;
+    if (log && port >= 0 && port < 5) {
+        static unsigned last[5] = {0, 0, 0, 0, 0};
+        static int lastRet[5] = {0, 0, 0, 0, 0};
+        const unsigned b = ret >= 0 && pad ? pad->buttons : 0;
+        if (b != last[port] || (ret < 0) != (lastRet[port] < 0))
+            SDL_Log("vita: pad port %d (read %d): buttons %08x, ret %08x", port, port == 1 ? 0 : port, b, unsigned(ret));
+        last[port] = b, lastRet[port] = ret;
+        // With port 2 (SDL's second controller): the raw ports 1-4 as the system has them.
+        if (port == 2) {
+            static unsigned rawLast[5] = {0, 0, 0, 0, 0};
+            static int rawRet[5] = {0, 0, 0, 0, 0};
+            for (int p = 1; p <= 4; ++p) {
+                if (p == 2) continue;
+                SceCtrlData d{};
+                const int r = __real_sceCtrlPeekBufferPositive2(p, &d, 1);
+                const unsigned rb = r >= 0 ? d.buttons : 0;
+                if (rb != rawLast[p] || (r < 0) != (rawRet[p] < 0))
+                    SDL_Log("vita: raw port %d: buttons %08x, ret %08x", p, rb, unsigned(r));
+                rawLast[p] = rb, rawRet[p] = r;
+            }
+        }
+    }
+    return ret;
 }
 
 const char* __wrap_SDL_GetBasePath(void) { return kDataDir; }
