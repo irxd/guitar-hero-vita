@@ -100,8 +100,16 @@ constexpr uint64_t kFrameStatsNs = 5'000'000'000ull;
 struct FrameStats {
     uint64_t frames = 0, cpuNs = 0, swapNs = 0, draws = 0, bufferBytes = 0, culled = 0;
     uint64_t maxFrameNs = 0, slowFrames = 0;  // frame interval (swap to swap); slow: over two vblanks
+    uint64_t late60 = 0;                      // frames over 17 ms: one missed vblank at 60 FPS
+    uint64_t gpuTailNs = 0, maxGpuTailNs = 0;  // GHVITA_GPUTIME: glFinish after the swap
 };
 FrameStats gFrame;
+// GHVITA_GPUTIME=1 (args.txt, measuring only): glFinish right after each swap,
+// timed. The GPU's tile (fragment) work starts when the scene ends at the
+// swap, so this is about the GPU time a frame needs after the CPU is done:
+// with it under ~16 ms the GPU leaves room for 60 FPS. It serialises CPU and
+// GPU, so the fps of such a run is not the game's.
+bool gGpuTime = false;
 uint64_t gFrameStatsStart = 0, gLastSwapEnd = 0;
 
 // Frame phases (vita_profile.h): time, draw calls and time inside vitaGL's
@@ -248,6 +256,7 @@ void frameStatsSwap(uint64_t swapStart, uint64_t swapEnd) {
         const uint64_t frameNs = swapEnd - gLastSwapEnd, cpuNs = swapStart - gLastSwapEnd;
         gFrame.maxFrameNs = std::max(gFrame.maxFrameNs, frameNs);
         if (frameNs > 34'000'000ull) ++gFrame.slowFrames;
+        if (frameNs > 17'500'000ull) ++gFrame.late60;
         if (gPhaseLevel > 0 && cpuNs > 34'000'000ull && gSpikeReports < 12) {
             ++gSpikeReports;
             std::string line;
@@ -281,10 +290,13 @@ void frameStatsSwap(uint64_t swapStart, uint64_t swapEnd) {
     }
     const double seconds = double(swapEnd - gFrameStatsStart) / 1e9, f = double(gFrame.frames);
     SDL_Log("vita: perf: %.1f fps; per frame: cpu %.1f ms, swap wait %.1f ms, %.0f draws (%.0f culled), %.0f KB buffer uploads; "
-            "slowest frame %.1f ms, %u over 34 ms",
+            "slowest frame %.1f ms, %u over 17 ms, %u over 34 ms",
             f / seconds, double(gFrame.cpuNs) / 1e6 / f, double(gFrame.swapNs) / 1e6 / f, double(gFrame.draws) / f,
             double(gFrame.culled) / f, double(gFrame.bufferBytes) / 1024.0 / f, double(gFrame.maxFrameNs) / 1e6,
-            unsigned(gFrame.slowFrames));
+            unsigned(gFrame.late60), unsigned(gFrame.slowFrames));
+    if (gGpuTime)
+        SDL_Log("vita: gpu tail (glFinish after swap): %.1f ms a frame, max %.1f ms", double(gFrame.gpuTailNs) / 1e6 / f,
+                double(gFrame.maxGpuTailNs) / 1e6);
     gSpikeReports = 0;
     if (gPhaseLevel > 0) reportPhases(f);
     gFrame = {};
@@ -743,6 +755,8 @@ void initVitaGl() {
     const int displayScenes = envInt("GHVITA_DISPLAY_SCENES", 0), fboScenes = envInt("GHVITA_FBO_SCENES", 4);
     const int paramMb = envInt("GHVITA_PARAM_MB", 0);
     gPhaseLevel = envInt("GHVITA_PHASES", 0);
+    gGpuTime = envInt("GHVITA_GPUTIME", 0) != 0;
+    if (gGpuTime) SDL_Log("vita: GHVITA_GPUTIME: glFinish after every swap (measuring only; serialises CPU and GPU)");
     {
         // What one clock read costs (the phase timer's overhead per call).
         constexpr int kReads = 2000;
@@ -1021,6 +1035,13 @@ bool __wrap_SDL_GL_SwapWindow(SDL_Window* /*window*/) {
     }
     const uint64_t swapStart = phaseNow();
     vglSwapBuffers(GL_FALSE);
+    if (gGpuTime) {
+        const uint64_t t0 = phaseNow();
+        glFinish();
+        const uint64_t tail = phaseNow() - t0;
+        gFrame.gpuTailNs += tail;
+        gFrame.maxGpuTailNs = std::max(gFrame.maxGpuTailNs, tail);
+    }
     const uint64_t now = phaseNow();
     if (kFrameStats) frameStatsSwap(swapStart, now);
     // Periodic reports only in measured runs (GHVITA_PHASES >= 1): even

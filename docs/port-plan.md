@@ -256,6 +256,41 @@ one change at a time; numbers carry units and conditions (song, scene, seconds i
 9. **Shaders, if GPU-bound later:** no `if` / `?:` in the hot path (step/mix instead), and
    the vertex lighting loop over 8 lights is the first candidate.
 
+### v0.2.0: 60 FPS (started 2026-11-16)
+
+Goal (user, after good feedback on v0.1.1): **a stable 60 FPS in songs without the crowd**,
+and if possible with it. Gate per 5 s window after loading, I Love Rock and Roll and Smoke on
+the Water, seed 1: ≥ 59.5 FPS and at most 2 frames over 17 ms.
+
+Where we start (runs 19-20, 2026-11-12): Max FPS 60, crowd off 47-58 FPS (17-21 ms CPU a
+frame); crowd on 46 FPS on average, heavy frames 25-28 ms (~500 draws). Still CPU bound (swap
+wait ~0.1 ms). So without the crowd ~4-5 ms must go from the heaviest frames, with it ~10 ms.
+What is left per frame is mostly the venue draw (~10-12 ms of single-threaded scene walk and
+vitaGL submission: ~11 us inside vitaGL per draw plus ~3 us of GL calls around it), track
+3 ms, particles ~3 ms, guitarist 2.2, script 1.0. Uniform caching and a crowd update thread
+were tried and did not pay (see above).
+
+Steps, each measured on hardware against the baseline, one at a time:
+0. **Baseline + GPU gate.** Perf line now counts frames over 17 ms. `GHVITA_GPUTIME=1`
+   (measuring only) times a `glFinish` after each swap: the GPU's tile work after the CPU is
+   done. Under ~16 ms in the heaviest shots means the GPU leaves room for 60, and the CPU is
+   the whole job; over it, the GPU needs work too (shaders, overdraw, `vglUseLowPrecision`).
+1. **Cheap wins:** vitaGL `SAMPLERS_SPEEDHACK` / `INDICES_SPEEDHACK` / `DRAW_SPEEDHACK=2`
+   (safer variant) one at a time (each skips per-draw checks in vitaGL's draw path, e.g. empty
+   sampler slots, per-stream index source setup); particles without per-frame vectors and
+   string-keyed mesh lookups; LTO for the game.
+2. **GL on its own core (main lever).** Every GL entry point already comes through
+   `__wrap_SDL_GL_GetProcAddress` (gd01's `gl::` and gdcore's loader, 75 + ~90 names), so a
+   proxy in `vita/` can record each call into a ring and a render thread on core 1 replays it
+   into vitaGL, with no upstream patch. Calls that return something (`glGen*`,
+   `glGetUniformLocation`, `glMapBufferRange`, `glReadPixels`, `glCheckFramebufferStatus`,
+   info logs) wait for the ring to drain; pointer arguments are copied. Expected: vitaGL's
+   time (~5-7 ms in heavy frames) leaves the main thread. **[verify]** that vitaGL can be
+   driven from a thread other than the one that initialised it (GXM contexts are not
+   thread-bound, but vitaGL's GC thread and display queue are).
+3. **Crowd at 60:** after step 2, measure again; then fewer crowd draws (merged pieces on the
+   CPU or bones in a texture, see run 18) if the crowd still does not fit.
+
 vitaGL pitfalls to remember:
 - `glDrawArrays` over 49152 vertices silently draws garbage: split such draws.
 - Fragment shaders get 16 uniform vec4s, vertex shaders 128.
@@ -375,3 +410,4 @@ with their SceneRenderer), fixed upstream in gd01 1.1.13.
 - 2026-11-16: Hardware (user): 0041 verified. Lefty Flip turns off again, the "can't delete band" error closes with Cross, and a song with Lefty Flip on shows green on the right. (The first test ran the old eboot: `tools/vita-loop.sh --no-launch` also skips the upload; deploy with a launch, or check the eboot's sha256 on the Vita.)
 - 2026-11-16: v0.1.1 (bug fix: 0041, Lefty Flip): version 0.1.1, APP_VER 01.01, notes docs/releases/v0.1.1.md (also link the bug report form). Built with `tools/release-vita.sh`.
 - 2026-11-16: Released v0.1.1 (alpha): https://github.com/irxd/guitar-hero-vita/releases/tag/v0.1.1 (pre-release, tag v0.1.1 on 9294393; VPK sha256 afedd85d…10e6, source f33a9adc…d0e). The Lefty Flip fix (0041) for the first player report.
+- 2026-11-16: v0.2.0 goal set (user): a stable 60 FPS without the crowd, with it if possible. Plan under "v0.2.0: 60 FPS" (baseline + GPU gate, vitaGL speed hacks and particles, GL on its own core, then the crowd). Perf line now counts frames over 17 ms; `GHVITA_GPUTIME=1` times the GPU tail after each swap. Built (0 warnings), not yet run on hardware.
