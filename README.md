@@ -54,6 +54,8 @@ Working on the Vita:
   frets plays them again (for fast runs of one note), and never counts as a miss. Single buttons can
   be rebound in the Gamepads screen, which overrides the layout.
 - Whammy on either analog stick; Star Power on Select
+- An external controller (a DualShock or DualSense through ds34vita) plays alongside the
+  Vita's own buttons: both control player 1
 - Optional: tap the rear touchpad to strum (Enhanced Settings → Rear Touch Strum) and shake
   the Vita for whammy (Shake for Whammy), both off by default
 - Our own LiveArea art and bubble icon ("GH Vita")
@@ -69,8 +71,7 @@ Known limitations:
 
 - **Two-player (face-off) is not supported yet:** with two DualSense controllers on
   ds34vita, the second one stops responding after a while and needs a Bluetooth restart.
-  Not yet known whether ds34vita or the port causes it. With one external controller, the
-  Vita's own buttons and that controller both control player 1
+  Not yet known whether ds34vita or the port causes it
 - **Vita-only differences from the PC version:** no post-processing effects by default
   (bloom, depth of field), no fade at the far end of the highway, no AI upscaling, HDR or
   MIDI guitars
