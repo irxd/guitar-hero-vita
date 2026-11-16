@@ -311,6 +311,17 @@ Steps, each measured on hardware against the baseline, one at a time:
 - Next suspect: texture bandwidth. Paletted textures keep **no mip levels** (run 7), so far
   textures are read at full size and miss the texture cache. To test: mipmaps for the venue
   textures (memory: ~+33% of the paletted size, or a mipmapped compressed format).
+- **Flat-only crowd at 60 (user's question, same day):** temporary switches in the patched
+  source (built with `SKIP_PATCHES=1`, removed after). Crowd on, no 3D members (every spot
+  keeps its sprite): widest shot 33 → 34 FPS, crowd draw 2.5 → 0.9 ms CPU, but swap wait still
+  7.3-7.8 ms; averages unchanged. Also freezing the six cut-outs after their first render:
+  widest shot 36.5 FPS, cpu 20 ms, swap wait still 7.1-7.5 ms. The same shot without the crowd:
+  51 FPS, swap wait ~1 ms. So **the flat sprites themselves cost the GPU ~8-10 ms** in wide
+  shots (one alpha-blended, alpha-cutout quad per spot, ~90 draws, sampling 128x256 render
+  target textures), not the 3D members or the refresh.
+  - Note: the alpha cutout is a uniform, so every scene draw runs a shader with a `discard`
+    branch, which on SGX costs hidden-surface removal even when it is not taken. A
+    no-discard program variant for opaque materials is a candidate GPU win for the whole scene.
 - Measuring aids added: perf line counts frames over 17 ms; `GHVITA_GPUTIME=1`;
   `GHVITA_UNHIDE=key,...` (enhanced.json may set those hidden keys); `GHVITA_LOWP_FRAG=1`.
 
@@ -435,3 +446,4 @@ with their SceneRenderer), fixed upstream in gd01 1.1.13.
 - 2026-11-16: Released v0.1.1 (alpha): https://github.com/irxd/guitar-hero-vita/releases/tag/v0.1.1 (pre-release, tag v0.1.1 on 9294393; VPK sha256 afedd85d…10e6, source f33a9adc…d0e). The Lefty Flip fix (0041) for the first player report.
 - 2026-11-16: v0.2.0 goal set (user): a stable 60 FPS without the crowd, with it if possible. Plan under "v0.2.0: 60 FPS" (baseline + GPU gate, vitaGL speed hacks and particles, GL on its own core, then the crowd). Perf line now counts frames over 17 ms; `GHVITA_GPUTIME=1` times the GPU tail after each swap. Built (0 warnings), not yet run on hardware.
 - 2026-11-16: Hardware run 21 (baseline for v0.2.0): at 60 FPS the GPU is at the limit as well as the CPU (light shots both ~17 ms, widest crowd shot GPU ~30 ms). Native resolution is slower than 448 in play (fragment bound); half-precision fragment shaders gain nothing. Next: test mipmaps on venue textures (bandwidth), then the CPU steps. Vita's enhanced.json restored to the user's (max_fps 60).
+- 2026-11-16: Flat-only crowd at 60 tested (user's idea): little gain; the sprites themselves cost the GPU ~8-10 ms in wide shots. Experiment switches removed; build back to the committed state (the Vita still runs the experiment eboot until the next deploy; its switches are off unless set in args.txt).
