@@ -1,0 +1,76 @@
+name: Bug report
+description: Something crashes, looks wrong or does not work on the Vita.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing GH Vita! Please do not attach game files (the ISO or anything
+        taken from it).
+  - type: input
+    id: version
+    attributes:
+      label: GH Vita version
+      description: Shown on the title screen.
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: console
+    attributes:
+      label: Console
+      options:
+        - PS Vita (OLED, PCH-1000)
+        - PS Vita (Slim, PCH-2000)
+        - PS TV
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+      placeholder: |
+        1. Quick Play, "I Love Rock 'n' Roll", Hard
+        2. Paused and chose Restart
+        3. The game froze on a black screen
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Song and mode
+      description: Which song and mode (Quick Play, Career, Tutorial, menus), if it matters.
+      placeholder: Quick Play, "I Love Rock 'n' Roll", Hard
+  - type: dropdown
+    id: often
+    attributes:
+      label: How often does it happen?
+      options:
+        - Every time
+        - Sometimes
+        - Only once
+    validations:
+      required: true
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings
+      description: Anything you changed in Options → Enhanced Settings (Performance Mode, Crowd, Button Layout, Rear Touch Strum, Shake for Whammy...).
+      placeholder: Performance Mode 60 FPS, Crowd off, Button Layout 2
+  - type: textarea
+    id: controllers
+    attributes:
+      label: Controllers and plugins
+      description: Vita buttons only, or a DualShock / DualSense? Any plugins in ur0:tai/config.txt (ds34vita, reVita...)?
+      placeholder: Vita buttons + one DualSense through ds34vita
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        Copy `ux0:data/ghvita/ghvita.log` from the run where it happened (it is replaced on every start)
+        and drag the file here.
+    validations:
+      required: true
