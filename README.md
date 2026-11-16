@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="sce_sys/livearea/contents/startup.png" alt="GH Vita logo" width="280">
+</p>
+
 # Guitar Hero (PS2) for PS Vita: a Guitar Dream Engine port
 
 A homebrew PS Vita port of Guitar Dream Engine's reimplementation of **Guitar Hero**
