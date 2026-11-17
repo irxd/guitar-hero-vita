@@ -418,6 +418,19 @@ Steps, each measured on hardware against the baseline, one at a time:
     heavy windows are now ~50 FPS with the GPU idle and the **game thread at ~20 ms**: crowd
     update 0.5, impostors 0.9, crowd draw 2.6 (8 3D members ~85 draws + sprite runs), on top
     of band 4.3, guitarist 2.5, stage 2.8, track 2.1. Next for the crowd: game thread time.
+- **Game thread in crowd shots (2026-11-17).** Option 1 (fewer 3D members at 60) was already in
+  place: 4 at Max FPS 60 since 2026-11-12. A **redundant call filter** in the GL thread
+  (`gl_thread.cpp`: per-program uniform values, program, texture binds, enable/disable, depth /
+  blend / cull / viewport state; all forgotten after any direct call) drops ~3,950 repeated calls
+  a frame: render thread replay ~8 → ~6 ms (crowd off, still 59.9 FPS), but the game thread is
+  unchanged (crowd on 55.7 FPS, heavy windows ~20 ms): filtering costs about what recording did.
+  - Level-2 profile with temporary timers in the scene walk (mid-song, 313 draws a frame):
+    `Renderer::drawMesh` 4.4 ms (~14 us a draw: ~30 GL calls, each through the function pointer,
+    the Vita hooks and the proxy), RenderState setup 2.1, mesh lookup (`build`) 1.5, lighting
+    0.5, culling 0.4, the rest of the walk ~2.3. No single hot spot left.
+  - Candidates: fewer GL calls per draw in `Renderer` itself (state compared there, before the
+    call chain); culling whole characters that are off screen (helps close-ups, not the wide
+    crowd shots); impostor refresh at 60 in more groups (~0.5 ms, choppier cut-outs).
 - Measuring aids added: perf line counts frames over 17 ms; `GHVITA_GPUTIME=1`;
   `GHVITA_UNHIDE=key,...` (enhanced.json may set those hidden keys); `GHVITA_LOWP_FRAG=1`.
 
@@ -549,3 +562,4 @@ with their SceneRenderer), fixed upstream in gd01 1.1.13.
 - 2026-11-17: Patch 0043, particle quads (reused buffer, index pattern kept on the GPU): crowd off 56.3 → 58.9 FPS (cpu 17.6 → 16.3 ms, frames over 17 ms 158 → 53 a window), crowd on 49.4 → 51.9. Vita runs this build; enhanced.json back to the user's (crowd on, fps counter). Next: the user's visual check, then the GL thread.
 - 2026-11-17: GL thread (vita/src/gl_thread.cpp): crowd off 58.9 → 59.9 FPS in both gate songs (frames over 17 ms ~1-3 a window), crowd on 51.9 → 54.7 (widest shots GPU bound, ~39). Menu 59.9. Vita runs this build; enhanced.json is the user's (crowd on, fps counter). Next: the user's check (visuals, timing feel), then the crowd.
 - 2026-11-17: Crowd: patches 0044 (scene program variants) and 0045 (flat sprites without cutout, blended far to near): crowd on 54.7 → 56.0 FPS, worst window 39.4 → 47.3; crowd off unchanged 59.9. Heavy crowd shots are now game-thread bound (~20 ms). Vita runs this build; enhanced.json is the user's (crowd on, fps counter). Next: the user's visual check of the crowd, then the game thread in crowd shots.
+- 2026-11-17: GL thread redundant call filter (~3,950 calls a frame dropped; render replay ~8 → ~6 ms; game thread unchanged). Scene walk profiled (see the v0.2.0 section). Vita runs this build; enhanced.json is the user's (crowd on, fps counter).

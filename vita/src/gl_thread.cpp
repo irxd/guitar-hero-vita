@@ -226,6 +226,169 @@ struct Defer<Real> {
     }
 };
 
+// --- Redundant call filter -----------------------------------------------------
+// A draw sets ~30 pieces of state (program, uniforms, blend, depth, texture),
+// and most repeat the draw before's: each costs a record here and a replay
+// there. The shadows below hold what the queued stream leaves set; a call
+// that sets the same again is dropped, as is a uniform write to location -1
+// (a no-op in GL). Calls made directly (a Direct scope: shader links, uploads,
+// ...) change state behind the shadows, so they are all forgotten when the
+// outermost Direct ends.
+uint32_t gSkipped = 0;
+
+// What the queued stream last set, per state (unknown until set).
+template <typename... T>
+struct Last {
+    bool known = false;
+    std::tuple<T...> v;
+    bool same(T... a) {
+        const std::tuple<T...> t(a...);
+        if (known && t == v) return true;
+        known = true, v = t;
+        return false;
+    }
+};
+
+// Uniform values per program and location, up to 64 bytes (bigger ones are
+// always sent and forget the slot).
+struct UniformSlot {
+    uint8_t len = 0;
+    alignas(4) uint8_t data[64];
+};
+std::unordered_map<GLuint, std::vector<UniformSlot>> gUniformCache;
+std::vector<UniformSlot>* gProgramUniforms = nullptr;  // the current program's (null: unknown program)
+
+bool uniformSame(GLint loc, const void* data, size_t bytes) {
+    if (!gProgramUniforms || loc < 0 || loc >= 1024) return false;
+    std::vector<UniformSlot>& v = *gProgramUniforms;
+    if (size_t(loc) >= v.size()) v.resize(size_t(loc) + 1);
+    UniformSlot& s = v[size_t(loc)];
+    if (bytes > sizeof s.data) {
+        s.len = 0;
+        return false;
+    }
+    if (s.len == bytes && std::memcmp(s.data, data, bytes) == 0) return true;
+    s.len = uint8_t(bytes);
+    std::memcpy(s.data, data, bytes);
+    return false;
+}
+
+// True: drop this uniform write (location -1, or the value is already set).
+bool uniformRedundant(GLint loc, const void* data, size_t bytes) {
+    if (direct()) return false;
+    if (loc < 0 || uniformSame(loc, data, bytes)) {
+        ++gSkipped;
+        return true;
+    }
+    return false;
+}
+
+// glUniform{1,2,3,4}{f,i}: the values by value.
+template <auto Real>
+struct CachedUniform;
+template <typename... T, void (*Real)(GLint, T...)>
+struct CachedUniform<Real> {
+    static void call(GLint loc, T... v) {
+        uint8_t buf[sizeof...(T) * 4 + 4];
+        size_t at = 0;
+        ((std::memcpy(buf + at, &v, sizeof(T)), at += sizeof(T)), ...);
+        if (uniformRedundant(loc, buf, at)) return;
+        Defer<Real>::call(loc, v...);
+    }
+};
+
+GLuint gProgram = 0;
+bool gProgramKnown = false;
+GLint gActiveUnit = 0;
+bool gActiveKnown = false;
+GLuint gBound2D[32];
+bool gBound2DKnown[32] = {};
+std::unordered_map<GLenum, bool> gCaps;  // glEnable / glDisable
+Last<GLenum> gDepthFunc, gBlendEquation, gCullFace, gFrontFace;
+Last<GLboolean> gDepthMask;
+Last<GLenum, GLenum> gBlendFunc;
+Last<GLboolean, GLboolean, GLboolean, GLboolean> gColorMask;
+Last<GLint, GLint, GLsizei, GLsizei> gViewport, gScissor;
+bool gVaoKnown = false;
+
+void forgetState() {
+    gUniformCache.clear();
+    gProgramUniforms = nullptr;
+    gProgramKnown = gActiveKnown = gVaoKnown = false;
+    std::fill(std::begin(gBound2DKnown), std::end(gBound2DKnown), false);
+    gCaps.clear();
+    gDepthFunc.known = gBlendEquation.known = gCullFace.known = gFrontFace.known = false;
+    gDepthMask.known = gBlendFunc.known = gColorMask.known = gViewport.known = gScissor.known = false;
+}
+
+bool skip(bool redundant) {
+    if (redundant) ++gSkipped;
+    return redundant;
+}
+
+void useProgram(GLuint program) {
+    if (!direct()) {
+        if (skip(gProgramKnown && program == gProgram)) return;
+        gProgram = program, gProgramKnown = true;
+        gProgramUniforms = &gUniformCache[program];
+    }
+    Defer<&::glUseProgram>::call(program);
+}
+
+void deleteProgram(GLuint program) {
+    gUniformCache.erase(program);
+    if (gProgram == program) gProgramKnown = false, gProgramUniforms = nullptr;
+    Defer<&::glDeleteProgram>::call(program);
+}
+
+void activeTexture(GLenum unit) {
+    if (!direct()) {
+        if (skip(gActiveKnown && GLint(unit - GL_TEXTURE0) == gActiveUnit)) return;
+        gActiveUnit = GLint(unit - GL_TEXTURE0), gActiveKnown = true;
+    }
+    Defer<&::glActiveTexture>::call(unit);
+}
+
+void bindTexture(GLenum target, GLuint texture) {
+    if (!direct() && target == GL_TEXTURE_2D && gActiveKnown && gActiveUnit >= 0 && gActiveUnit < 32) {
+        const size_t u = size_t(gActiveUnit);
+        if (skip(gBound2DKnown[u] && gBound2D[u] == texture)) return;
+        gBound2D[u] = texture, gBound2DKnown[u] = true;
+    } else if (!direct() && target == GL_TEXTURE_2D) {
+        std::fill(std::begin(gBound2DKnown), std::end(gBound2DKnown), false);  // unit unknown
+    }
+    Defer<&::glBindTexture>::call(target, texture);
+}
+
+void setCap(GLenum cap, bool on) {
+    if (!direct()) {
+        const auto it = gCaps.find(cap);
+        if (skip(it != gCaps.end() && it->second == on)) return;
+        gCaps[cap] = on;
+    }
+    if (on) Defer<&::glEnable>::call(cap);
+    else Defer<&::glDisable>::call(cap);
+}
+void enable(GLenum cap) { setCap(cap, true); }
+void disable(GLenum cap) { setCap(cap, false); }
+
+// The plain state setters: dropped when the same as the last queued.
+#define GHVITA_CACHED(fn, shadow, sig, args)                 \
+    void cached_##fn sig {                                   \
+        if (!direct() && skip(shadow.same args)) return;     \
+        Defer<&::fn>::call args;                             \
+    }
+GHVITA_CACHED(glDepthFunc, gDepthFunc, (GLenum f), (f))
+GHVITA_CACHED(glDepthMask, gDepthMask, (GLboolean m), (m))
+GHVITA_CACHED(glBlendEquation, gBlendEquation, (GLenum e), (e))
+GHVITA_CACHED(glBlendFunc, gBlendFunc, (GLenum s, GLenum d), (s, d))
+GHVITA_CACHED(glCullFace, gCullFace, (GLenum f), (f))
+GHVITA_CACHED(glFrontFace, gFrontFace, (GLenum f), (f))
+GHVITA_CACHED(glColorMask, gColorMask, (GLboolean r, GLboolean g, GLboolean b, GLboolean a), (r, g, b, a))
+GHVITA_CACHED(glViewport, gViewport, (GLint x, GLint y, GLsizei w, GLsizei h), (x, y, w, h))
+GHVITA_CACHED(glScissor, gScissor, (GLint x, GLint y, GLsizei w, GLsizei h), (x, y, w, h))
+#undef GHVITA_CACHED
+
 // glUniform*v: `count` items of N values, copied.
 template <auto Real, int N>
 struct DeferUniformV;
@@ -241,6 +404,7 @@ struct DeferUniformV<Real, N> {
     }
     static void call(GLint loc, GLsizei count, const T* v) {
         const size_t bytes = count > 0 ? size_t(count) * N * sizeof(T) : 0;
+        if (v && bytes && uniformRedundant(loc, v, bytes)) return;
         if (direct() || !v || bytes == 0 || bytes > kMaxPayload) {
             Direct d;
             return Real(loc, count, v);
@@ -269,6 +433,7 @@ struct DeferMatrixV<Real, N> {
     }
     static void call(GLint loc, GLsizei count, GLboolean transpose, const GLfloat* v) {
         const size_t bytes = count > 0 ? size_t(count) * N * sizeof(GLfloat) : 0;
+        if (v && bytes && !transpose && uniformRedundant(loc, v, bytes)) return;
         if (direct() || !v || bytes == 0 || bytes > kMaxPayload) {
             Direct d;
             return Real(loc, count, transpose, v);
@@ -295,6 +460,10 @@ void bindBuffer(GLenum target, GLuint buffer) {
 }
 
 void bindVertexArray(GLuint vao) {
+    if (!direct()) {
+        if (skip(gVaoKnown && vao == gVao)) return;
+        gVaoKnown = true;
+    }
     gVao = vao;
     Defer<&::glBindVertexArray>::call(vao);
 }
@@ -331,11 +500,18 @@ void deleteBuffers(GLsizei n, const GLuint* names) {
     DeferDelete<&::glDeleteBuffers>::call(n, names);
 }
 
+void deleteTextures(GLsizei n, const GLuint* names) {
+    for (GLsizei i = 0; names && i < n; ++i)
+        for (size_t u = 0; u < 32; ++u)
+            if (gBound2DKnown[u] && gBound2D[u] == names[i]) gBound2DKnown[u] = false;  // GL unbinds it
+    DeferDelete<&::glDeleteTextures>::call(n, names);
+}
+
 void deleteVertexArrays(GLsizei n, const GLuint* names) {
     for (GLsizei i = 0; names && i < n; ++i) {
         gVaoElements.erase(names[i]);
         gClientArrayVaos.erase(names[i]);
-        if (gVao == names[i]) gVao = 0;
+        if (gVao == names[i]) gVao = 0, gVaoKnown = false;
     }
     DeferDelete<&::glDeleteVertexArrays>::call(n, names);
 }
@@ -520,20 +696,20 @@ struct Entry {
 #define GHVITA_DEFER(name) {#name, GHVITA_FN(&Defer<&::name>::call)}
 const Entry kQueued[] = {
     // State and draws, by value.
-    GHVITA_DEFER(glActiveTexture), GHVITA_DEFER(glBindTexture), GHVITA_DEFER(glUseProgram),
-    GHVITA_DEFER(glEnable), GHVITA_DEFER(glDisable), GHVITA_DEFER(glBlendFunc), GHVITA_DEFER(glBlendFuncSeparate),
-    GHVITA_DEFER(glBlendEquation), GHVITA_DEFER(glBlendEquationSeparate), GHVITA_DEFER(glDepthFunc),
-    GHVITA_DEFER(glDepthMask), GHVITA_DEFER(glColorMask), GHVITA_DEFER(glCullFace), GHVITA_DEFER(glFrontFace),
-    GHVITA_DEFER(glViewport), GHVITA_DEFER(glScissor), GHVITA_DEFER(glClear), GHVITA_DEFER(glClearColor),
+    {"glActiveTexture", GHVITA_FN(&activeTexture)}, {"glBindTexture", GHVITA_FN(&bindTexture)}, {"glUseProgram", GHVITA_FN(&useProgram)},
+    {"glEnable", GHVITA_FN(&enable)}, {"glDisable", GHVITA_FN(&disable)}, {"glBlendFunc", GHVITA_FN(&cached_glBlendFunc)}, GHVITA_DEFER(glBlendFuncSeparate),
+    {"glBlendEquation", GHVITA_FN(&cached_glBlendEquation)}, GHVITA_DEFER(glBlendEquationSeparate), {"glDepthFunc", GHVITA_FN(&cached_glDepthFunc)},
+    {"glDepthMask", GHVITA_FN(&cached_glDepthMask)}, {"glColorMask", GHVITA_FN(&cached_glColorMask)}, {"glCullFace", GHVITA_FN(&cached_glCullFace)}, {"glFrontFace", GHVITA_FN(&cached_glFrontFace)},
+    {"glViewport", GHVITA_FN(&cached_glViewport)}, {"glScissor", GHVITA_FN(&cached_glScissor)}, GHVITA_DEFER(glClear), GHVITA_DEFER(glClearColor),
     GHVITA_DEFER(glClearDepthf), GHVITA_DEFER(glClearStencil), GHVITA_DEFER(glStencilFunc), GHVITA_DEFER(glStencilOp),
     GHVITA_DEFER(glStencilMask), GHVITA_DEFER(glPolygonOffset), GHVITA_DEFER(glLineWidth),
     GHVITA_DEFER(glTexParameteri), GHVITA_DEFER(glTexParameterf), GHVITA_DEFER(glGenerateMipmap),
     GHVITA_DEFER(glBindFramebuffer), GHVITA_DEFER(glBindRenderbuffer), GHVITA_DEFER(glBlitFramebuffer),
     GHVITA_DEFER(glCopyTexSubImage2D), GHVITA_DEFER(glEnableVertexAttribArray),
     GHVITA_DEFER(glDisableVertexAttribArray), GHVITA_DEFER(glDepthRangef),
-    GHVITA_DEFER(glBeginQuery), GHVITA_DEFER(glEndQuery), GHVITA_DEFER(glDeleteProgram), GHVITA_DEFER(glDeleteShader),
-    GHVITA_DEFER(glUniform1f), GHVITA_DEFER(glUniform2f), GHVITA_DEFER(glUniform3f), GHVITA_DEFER(glUniform4f),
-    GHVITA_DEFER(glUniform1i), GHVITA_DEFER(glUniform2i), GHVITA_DEFER(glUniform3i), GHVITA_DEFER(glUniform4i),
+    GHVITA_DEFER(glBeginQuery), GHVITA_DEFER(glEndQuery), {"glDeleteProgram", GHVITA_FN(&deleteProgram)}, GHVITA_DEFER(glDeleteShader),
+    {"glUniform1f", GHVITA_FN(&CachedUniform<&::glUniform1f>::call)}, {"glUniform2f", GHVITA_FN(&CachedUniform<&::glUniform2f>::call)}, {"glUniform3f", GHVITA_FN(&CachedUniform<&::glUniform3f>::call)}, {"glUniform4f", GHVITA_FN(&CachedUniform<&::glUniform4f>::call)},
+    {"glUniform1i", GHVITA_FN(&CachedUniform<&::glUniform1i>::call)}, {"glUniform2i", GHVITA_FN(&CachedUniform<&::glUniform2i>::call)}, {"glUniform3i", GHVITA_FN(&CachedUniform<&::glUniform3i>::call)}, {"glUniform4i", GHVITA_FN(&CachedUniform<&::glUniform4i>::call)},
     // Copied data.
     {"glUniform1fv", GHVITA_FN((&DeferUniformV<&::glUniform1fv, 1>::call))},
     {"glUniform2fv", GHVITA_FN((&DeferUniformV<&::glUniform2fv, 2>::call))},
@@ -546,7 +722,7 @@ const Entry kQueued[] = {
     {"glUniformMatrix2fv", GHVITA_FN((&DeferMatrixV<&::glUniformMatrix2fv, 4>::call))},
     {"glUniformMatrix3fv", GHVITA_FN((&DeferMatrixV<&::glUniformMatrix3fv, 9>::call))},
     {"glUniformMatrix4fv", GHVITA_FN((&DeferMatrixV<&::glUniformMatrix4fv, 16>::call))},
-    {"glDeleteTextures", GHVITA_FN(&DeferDelete<&::glDeleteTextures>::call)},
+    {"glDeleteTextures", GHVITA_FN(&deleteTextures)},
     {"glDeleteFramebuffers", GHVITA_FN(&DeferDelete<&::glDeleteFramebuffers>::call)},
     {"glDeleteRenderbuffers", GHVITA_FN(&DeferDelete<&::glDeleteRenderbuffers>::call)},
     {"glDeleteQueries", GHVITA_FN(&DeferDelete<&::glDeleteQueries>::call)},
@@ -593,7 +769,7 @@ Direct::Direct() : on_(gActive) {
 }
 
 Direct::~Direct() {
-    if (on_) --gDirectDepth;
+    if (on_ && --gDirectDepth == 0) forgetState();  // direct calls changed state behind the shadows
 }
 
 void start() {
@@ -675,10 +851,10 @@ void report(double frames) {
                 unsigned(gRenderPriorityResult));
     }
     SDL_Log("vita: gl thread: per frame: replay %.1f ms, in swap %.1f ms; game thread waited %.1f ms for the frame, "
-            "%.1f ms in %.1f drains, %.1f ms for room; %.1f direct draws, %u big copies; draining calls:%s",
+            "%.1f ms in %.1f drains, %.1f ms for room; %.1f direct draws, %u big copies, %.0f repeated calls dropped; draining calls:%s",
             busy / 1e3 / frames, swapUs / 1e3 / frames, gFrameWaitUs / 1e3 / frames, gDrainUs / 1e3 / frames,
-            gDrains / frames, gRingWaitUs / 1e3 / frames, gClientDraws / frames, gBigCopies, calls.empty() ? " none" : calls.c_str());
-    gFrameWaitUs = gDrainUs = gDrains = gRingWaitUs = gClientDraws = gBigCopies = 0;
+            gDrains / frames, gRingWaitUs / 1e3 / frames, gClientDraws / frames, gBigCopies, gSkipped / frames, calls.empty() ? " none" : calls.c_str());
+    gFrameWaitUs = gDrainUs = gDrains = gRingWaitUs = gClientDraws = gBigCopies = gSkipped = 0;
 }
 
 }  // namespace vita::glthread
