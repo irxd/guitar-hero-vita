@@ -31,6 +31,10 @@ SDL_FunctionPointer proxy(const char* name, SDL_FunctionPointer real);
 // so the game thread is at most one frame ahead of the render thread.
 void swap();
 
+// glCompressedTexImage2D (border 0), queued with a copy of the data like the
+// proxied glTexImage2D (for the Vita layer's paletted uploads).
+void compressedTexImage2D(unsigned target, int level, unsigned internal, int w, int h, int bytes, const void* data);
+
 // While one exists, the calling (game) thread may call vitaGL directly: the
 // queue is drained first, and the proxies call straight through. For the
 // Vita layer's own vitaGL calls (shader and texture hooks, screenshots, ...).

@@ -657,6 +657,16 @@ void texImage2D(GLenum target, GLint level, GLint internal, GLsizei w, GLsizei h
     commit(c);
 }
 
+struct CompressedTexImageCmd : Cmd {
+    GLenum target, internal;
+    GLint level;
+    GLsizei w, h, bytes;
+};
+void replayCompressedTexImage2D(Cmd* c) {
+    CompressedTexImageCmd* k = static_cast<CompressedTexImageCmd*>(c);
+    glCompressedTexImage2D(k->target, k->level, k->internal, k->w, k->h, 0, k->bytes, k + 1);
+}
+
 struct TexSubImageCmd : Cmd {
     GLenum target, format, type;
     GLint level, x, y;
@@ -681,10 +691,56 @@ void texSubImage2D(GLenum target, GLint level, GLint x, GLint y, GLsizei w, GLsi
     commit(c);
 }
 
+// --- Object names made ahead ----------------------------------------------------
+// glGen* must hand back names at once, so as a direct call it waited for the
+// render thread to finish the frame so far: 10-17 ms when a mesh or texture
+// was made mid-song, a 25 ms frame a few times a minute (hardware,
+// 2026-11-17). The render thread now keeps a few names of each kind ready
+// (topped up at each swap) and glGen* takes them from there; only an empty
+// pool falls back to the direct call. A name deleted later is still deleted
+// in order, before any refill could make it again.
+struct NamePool {
+    static constexpr uint32_t kSize = 64;
+    void (*gen)(GLsizei, GLuint*);
+    GLuint names[kSize] = {};
+    std::atomic<uint32_t> made{0};   // render thread: names added so far
+    std::atomic<uint32_t> taken{0};  // game thread: names handed out so far
+    uint32_t hits = 0, misses = 0;   // game thread (report)
+};
+NamePool gPools[] = {{&::glGenVertexArrays}, {&::glGenBuffers}, {&::glGenTextures}, {&::glGenFramebuffers}};
+
+void refillPools() {  // render thread, between frames
+    for (NamePool& p : gPools) {
+        const uint32_t made = p.made.load(std::memory_order_relaxed);
+        const uint32_t room = NamePool::kSize - (made - p.taken.load(std::memory_order_acquire));
+        if (room < NamePool::kSize / 2) continue;
+        GLuint fresh[NamePool::kSize];
+        p.gen(GLsizei(room), fresh);
+        for (uint32_t i = 0; i < room; ++i) p.names[(made + i) % NamePool::kSize] = fresh[i];
+        p.made.store(made + room, std::memory_order_release);
+    }
+}
+
+template <int I>
+void genFromPool(GLsizei n, GLuint* out) {
+    NamePool& p = gPools[I];
+    const uint32_t taken = p.taken.load(std::memory_order_relaxed);
+    if (!direct() && n > 0 && p.made.load(std::memory_order_acquire) - taken >= uint32_t(n)) {
+        for (GLsizei i = 0; i < n; ++i) out[i] = p.names[(taken + uint32_t(i)) % NamePool::kSize];
+        p.taken.store(taken + uint32_t(n), std::memory_order_release);
+        ++p.hits;
+        return;
+    }
+    if (!direct()) ++p.misses;
+    Direct d;
+    p.gen(n, out);
+}
+
 void replaySwap(Cmd*) {
     const uint32_t t0 = nowUs();
     vglSwapBuffers(GL_FALSE);
     gSwapUs.fetch_add(nowUs() - t0, std::memory_order_relaxed);
+    refillPools();  // before the swap counts as done: a drain waiting on it sees the render thread idle
     gSwapsDone.fetch_add(1);
 }
 
@@ -731,6 +787,11 @@ const Entry kQueued[] = {
     {"glTexImage2D", GHVITA_FN(&texImage2D)},
     {"glTexSubImage2D", GHVITA_FN(&texSubImage2D)},
     {"glPixelStorei", GHVITA_FN(&pixelStorei)},
+    // Names made ahead (NamePool).
+    {"glGenVertexArrays", GHVITA_FN(&genFromPool<0>)},
+    {"glGenBuffers", GHVITA_FN(&genFromPool<1>)},
+    {"glGenTextures", GHVITA_FN(&genFromPool<2>)},
+    {"glGenFramebuffers", GHVITA_FN(&genFromPool<3>)},
     // With binding shadows.
     {"glBindBuffer", GHVITA_FN(&bindBuffer)},
     {"glBindVertexArray", GHVITA_FN(&bindVertexArray)},
@@ -763,6 +824,19 @@ bool enabled() {
 }  // namespace
 
 bool active() { return gActive; }
+
+void compressedTexImage2D(GLenum target, GLint level, GLenum internal, GLsizei w, GLsizei h, GLsizei bytes, const void* data) {
+    if (direct() || !data || bytes <= 0 || uint32_t(bytes) > kMaxPayload) {
+        if (uint32_t(bytes) > kMaxPayload) ++gBigCopies;
+        Direct d;
+        return glCompressedTexImage2D(target, level, internal, w, h, 0, bytes, data);
+    }
+    CompressedTexImageCmd* c = static_cast<CompressedTexImageCmd*>(reserve(uint32_t(sizeof(CompressedTexImageCmd) + bytes)));
+    c->replay = &replayCompressedTexImage2D;
+    c->target = target, c->internal = internal, c->level = level, c->w = w, c->h = h, c->bytes = bytes;
+    std::memcpy(c + 1, data, size_t(bytes));
+    commit(c);
+}
 
 Direct::Direct() : on_(gActive) {
     if (on_ && gDirectDepth++ == 0) drain();
@@ -850,10 +924,14 @@ void report(double frames) {
         SDL_Log("vita: gl thread priority %d (game thread %d): 0x%08x", gRenderPriority, sceKernelGetThreadCurrentPriority(),
                 unsigned(gRenderPriorityResult));
     }
+    unsigned poolHits = 0, poolMisses = 0;  // this window's glGen* calls
+    for (NamePool& p : gPools) poolHits += p.hits, poolMisses += p.misses, p.hits = p.misses = 0;
     SDL_Log("vita: gl thread: per frame: replay %.1f ms, in swap %.1f ms; game thread waited %.1f ms for the frame, "
-            "%.1f ms in %.1f drains, %.1f ms for room; %.1f direct draws, %u big copies, %.0f repeated calls dropped; draining calls:%s",
+            "%.1f ms in %.1f drains, %.1f ms for room; %.1f direct draws, %u big copies, %.0f repeated calls dropped; "
+            "glGen* from the pools %u, direct %u; draining calls:%s",
             busy / 1e3 / frames, swapUs / 1e3 / frames, gFrameWaitUs / 1e3 / frames, gDrainUs / 1e3 / frames,
-            gDrains / frames, gRingWaitUs / 1e3 / frames, gClientDraws / frames, gBigCopies, gSkipped / frames, calls.empty() ? " none" : calls.c_str());
+            gDrains / frames, gRingWaitUs / 1e3 / frames, gClientDraws / frames, gBigCopies, gSkipped / frames, poolHits, poolMisses,
+            calls.empty() ? " none" : calls.c_str());
     gFrameWaitUs = gDrainUs = gDrains = gRingWaitUs = gClientDraws = gBigCopies = gSkipped = 0;
 }
 

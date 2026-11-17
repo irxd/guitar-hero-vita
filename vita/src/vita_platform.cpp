@@ -258,7 +258,11 @@ void frameStatsSwap(uint64_t swapStart, uint64_t swapEnd) {
         gFrame.maxFrameNs = std::max(gFrame.maxFrameNs, frameNs);
         if (frameNs > 34'000'000ull) ++gFrame.slowFrames;
         if (frameNs > 17'500'000ull) ++gFrame.late60;
-        if (gPhaseLevel > 0 && cpuNs > 34'000'000ull && gSpikeReports < 12) {
+        static const uint64_t spikeNs = [] {  // GHVITA_SPIKE_MS (args.txt): the slow frame report's threshold
+            const char* e = std::getenv("GHVITA_SPIKE_MS");
+            return uint64_t((e ? std::atof(e) : 34.0) * 1e6);
+        }();
+        if (gPhaseLevel > 0 && frameNs > spikeNs && gSpikeReports < 12) {
             ++gSpikeReports;
             std::string line;
             char part[96];
@@ -271,7 +275,8 @@ void frameStatsSwap(uint64_t swapStart, uint64_t swapEnd) {
                 line += part;
                 gFrameNs[best] = 0;
             }
-            SDL_Log("vita: slow frame: cpu %.1f ms (frame %u in window), longest:%s", double(cpuNs) / 1e6,
+            SDL_Log("vita: slow frame: %.1f ms, cpu %.1f ms, swap wait %.1f ms (frame %u in window), longest:%s",
+                    double(frameNs) / 1e6, double(cpuNs) / 1e6, double(swapEnd - swapStart) / 1e6,
                     unsigned(gFrame.frames), line.c_str());
         }
     }
@@ -326,15 +331,22 @@ void logAllocFailure(const char* what, size_t size) {
            unsigned(mi.uordblks >> 10), unsigned(mi.arena >> 10), unsigned(_newlib_heap_size_user >> 10));
 }
 
-void reportMemory(const char* when) {
-    vita::glthread::Direct direct;
+// vitaGL's free memory (vglMemFree) walks its heaps: the two calls took 7-15 ms,
+// after a drain of up to 17 ms for the render thread to go idle; every 10 s
+// that made a 45-63 ms frame in measured runs (hardware, 2026-11-17). So the
+// periodic report has the heap only, unless GHVITA_GPU_MEMORY=1 (args.txt).
+void reportMemory(const char* when, bool gpu) {
     const struct mallinfo mi = mallinfo();
     if (size_t(mi.uordblks) > gPeakHeapUsed) gPeakHeapUsed = size_t(mi.uordblks);
-    SDL_Log("vita: memory [%s]: heap %u / %u MB (peak %u MB); vitaGL free VRAM %u MB, RAM %u MB; "
-            "textures: %u paletted (%u MB saved), %u RGBA (%u MB)",
-            when, unsigned(mi.uordblks >> 20), unsigned(_newlib_heap_size_user >> 20), unsigned(gPeakHeapUsed >> 20),
-            unsigned(vglMemFree(VGL_MEM_VRAM) >> 20), unsigned(vglMemFree(VGL_MEM_RAM) >> 20), gPaletteCount,
-            unsigned(gPaletteSavedBytes >> 20), gRgbaCount, unsigned(gRgbaBytes >> 20));
+    char gpuPart[64] = "";
+    if (gpu) {
+        vita::glthread::Direct direct;
+        std::snprintf(gpuPart, sizeof gpuPart, "; vitaGL free VRAM %u MB, RAM %u MB", unsigned(vglMemFree(VGL_MEM_VRAM) >> 20),
+                      unsigned(vglMemFree(VGL_MEM_RAM) >> 20));
+    }
+    SDL_Log("vita: memory [%s]: heap %u / %u MB (peak %u MB)%s; textures: %u paletted (%u MB saved), %u RGBA (%u MB)", when,
+            unsigned(mi.uordblks >> 20), unsigned(_newlib_heap_size_user >> 20), unsigned(gPeakHeapUsed >> 20), gpuPart,
+            gPaletteCount, unsigned(gPaletteSavedBytes >> 20), gRgbaCount, unsigned(gRgbaBytes >> 20));
 }
 
 // --- Stand-ins for GL functions vitaGL does not have ---------------------
@@ -458,13 +470,22 @@ void hookActiveTexture(GLenum unit) {
 bool uploadPaletted(GLenum target, GLsizei w, GLsizei h, const void* pixels) {
     static std::vector<uint8_t> blob;  // reused: no allocation churn per upload
     if (!vita::paletteRgba8(static_cast<const uint8_t*>(pixels), w, h, blob)) return false;
-    vita::glthread::Direct direct;
-    while (glGetError() != GL_NO_ERROR) {}
-    glCompressedTexImage2D(target, 0, GL_PALETTE8_RGBA8_OES, w, h, 0, GLsizei(blob.size()), blob.data());
-    if (const GLenum err = glGetError(); err != GL_NO_ERROR) {
-        SDL_Log("vita: paletted upload %dx%d rejected (GL error 0x%x): paletted textures off", w, h, err);
-        gPaletteDisabled = true;
-        return false;
+    // The first upload runs directly and checks vitaGL's answer; once that
+    // worked, uploads are queued to the GL thread like glTexImage2D. Direct,
+    // each one waited for the render thread (~10 ms mid-song, hardware 2026-11-17).
+    static bool accepted = false;
+    if (accepted) {
+        vita::glthread::compressedTexImage2D(target, 0, GL_PALETTE8_RGBA8_OES, w, h, GLsizei(blob.size()), blob.data());
+    } else {
+        vita::glthread::Direct direct;
+        while (glGetError() != GL_NO_ERROR) {}
+        glCompressedTexImage2D(target, 0, GL_PALETTE8_RGBA8_OES, w, h, 0, GLsizei(blob.size()), blob.data());
+        if (const GLenum err = glGetError(); err != GL_NO_ERROR) {
+            SDL_Log("vita: paletted upload %dx%d rejected (GL error 0x%x): paletted textures off", w, h, err);
+            gPaletteDisabled = true;
+            return false;
+        }
+        accepted = true;
     }
     const auto it = gMinFilter.find(boundTexture2D());
     const GLint minFilter = it != gMinFilter.end() ? it->second : GL_NEAREST_MIPMAP_LINEAR;
@@ -832,7 +853,13 @@ void asyncLogOutput(void*, int category, SDL_LogPriority priority, const char* m
 }
 
 int asyncLogThread(void*) {
+    // Core 2, one step above the GL render thread (default - 8, gl_thread.cpp):
+    // below it, the render thread could preempt the writer while it held
+    // gLogMutex, and the game thread's next SDL_Log then waited out the
+    // render thread's replay, up to ~10 ms (hardware, 2026-11-17). The writer
+    // mostly sleeps in card writes, so the render thread loses little.
     sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_2);
+    sceKernelChangeThreadPriority(0, sceKernelGetThreadCurrentPriority() - 9);
     SDL_LockMutex(gLogMutex);
     for (;;) {
         while (gLogQueue.empty()) {
@@ -1071,7 +1098,12 @@ bool __wrap_SDL_GL_SwapWindow(SDL_Window* /*window*/) {
     // queued to the log thread, a write to the memory card made the next
     // frame 16-19 ms late (hardware, 2026-11-11). The first frame's report stays.
     if (now >= gNextMemoryReport && (gNextMemoryReport == 0 || gPhaseLevel > 0)) {
-        reportMemory(gNextMemoryReport == 0 ? "first frame" : "periodic");
+        static const bool gpuPeriodic = [] {
+            const char* e = std::getenv("GHVITA_GPU_MEMORY");
+            return e && std::atoi(e) != 0;
+        }();
+        const bool first = gNextMemoryReport == 0;
+        reportMemory(first ? "first frame" : "periodic", first || gpuPeriodic);
         gNextMemoryReport = now + kMemoryReportNs;
     }
     return true;

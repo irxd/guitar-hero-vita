@@ -431,8 +431,39 @@ Steps, each measured on hardware against the baseline, one at a time:
   - Candidates: fewer GL calls per draw in `Renderer` itself (state compared there, before the
     call chain); culling whole characters that are off screen (helps close-ups, not the wide
     crowd shots); impostor refresh at 60 in more groups (~0.5 ms, choppier cut-outs).
+- **Crowd-off hitches (2026-11-17), Vita layer only (no patch).** Slow frames logged with their
+  phases (`GHVITA_SPIKE_MS=17.5`), long drains with their GL function (temporary code). Found:
+  - `glGenVertexArrays` / `glGenTextures` mid-song (a mesh or texture made now and then) drained
+    the queue: 10-17 ms each, a ~25 ms frame a few times a minute. **Name pools**: the render
+    thread keeps 32-64 names of each kind (vertex arrays, buffers, textures, framebuffers),
+    topped up at each swap; `glGen*` takes from them (no direct `glGen*` after loading).
+  - Paletted texture uploads (`uploadPaletted`) ran under a `Direct` (~10 ms drain each). Now
+    queued (`glthread::compressedTexImage2D`, data copied); the first upload still runs directly
+    to check vitaGL accepts the format.
+  - The log writer (core 2) sat below the render thread's priority: preempted while holding the
+    queue's mutex, it made the game thread's next `SDL_Log` wait out the replay (4-8 ms after
+    every logged line). Now one step above the render thread.
+  - Measured runs only: the 10 s memory report drained the queue and called `vglMemFree` twice
+    (7-15 ms): a 45-63 ms frame every 10 s. The periodic report has the heap only now
+    (`GHVITA_GPU_MEMORY=1` adds vitaGL's free memory back).
+  - Result, crowd off, Max FPS 60 (first window = venue load left out): I Love Rock and Roll
+    59.9 FPS, slowest frame per window 17.2-21.9 ms (was 42-48 ms every other window plus
+    ~25 ms ones); Smoke on the Water 59.9, 17.1-21.3 ms. No frame over 34 ms. Frames over 17 ms
+    per window: median ~3, but 0-2 in under half the windows: heavy camera shots run at
+    17.5-19 ms game thread for 10-20 frames in a row (real work, not stalls). Crowd on
+    unchanged (55.5 FPS, worst window 47.2).
+  - **Batched draw state, tried and dropped.** An upper-bound test (drawMesh without its
+    uniforms and state: wrong picture) cut the game thread 15.2 → 12.1 ms. A batch that ran the
+    same filter and packed the ~30 calls a draw into one ring command (`Renderer::vitaDrawBatched`)
+    gave nothing (15.4-15.8 ms). Split: filter only 14.0, filter and recording 15.4; prefetching
+    the ring and a 1 MB ring did not help. The cost moves with the render thread's replay
+    (3.5 vs 7 ms in those runs): the two cores share the memory bus, so it is not the call
+    chain. What would help: fewer state changes reaching GL at all (draw order by state, merged
+    draws), or less game-thread work in heavy shots (guitarist animation 2.4 ms, track 2.1).
 - Measuring aids added: perf line counts frames over 17 ms; `GHVITA_GPUTIME=1`;
-  `GHVITA_UNHIDE=key,...` (enhanced.json may set those hidden keys); `GHVITA_LOWP_FRAG=1`.
+  `GHVITA_UNHIDE=key,...` (enhanced.json may set those hidden keys); `GHVITA_LOWP_FRAG=1`;
+  `GHVITA_SPIKE_MS=<ms>` (slow frame lines from that frame time; default 34);
+  `GHVITA_GPU_MEMORY=1` (vitaGL free memory in the periodic memory report).
 
 vitaGL pitfalls to remember:
 - `glDrawArrays` over 49152 vertices silently draws garbage: split such draws.
@@ -563,3 +594,4 @@ with their SceneRenderer), fixed upstream in gd01 1.1.13.
 - 2026-11-17: GL thread (vita/src/gl_thread.cpp): crowd off 58.9 → 59.9 FPS in both gate songs (frames over 17 ms ~1-3 a window), crowd on 51.9 → 54.7 (widest shots GPU bound, ~39). Menu 59.9. Vita runs this build; enhanced.json is the user's (crowd on, fps counter). Next: the user's check (visuals, timing feel), then the crowd.
 - 2026-11-17: Crowd: patches 0044 (scene program variants) and 0045 (flat sprites without cutout, blended far to near): crowd on 54.7 → 56.0 FPS, worst window 39.4 → 47.3; crowd off unchanged 59.9. Heavy crowd shots are now game-thread bound (~20 ms). Vita runs this build; enhanced.json is the user's (crowd on, fps counter). Next: the user's visual check of the crowd, then the game thread in crowd shots.
 - 2026-11-17: GL thread redundant call filter (~3,950 calls a frame dropped; render replay ~8 → ~6 ms; game thread unchanged). Scene walk profiled (see the v0.2.0 section). Vita runs this build; enhanced.json is the user's (crowd on, fps counter).
+- 2026-11-17: Crowd-off hitches: glGen* name pools, queued paletted uploads, log writer above the render thread, periodic memory report without vglMemFree. Slowest frame mid-song 42-48 ms → ≤ 22 ms in both gate songs (59.9 FPS); runs of 17.5-19 ms frames remain in heavy shots. Batched draw state tried, no gain, dropped. Vita runs this build; enhanced.json is the user's (crowd on, fps counter).
