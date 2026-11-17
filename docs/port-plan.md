@@ -388,6 +388,36 @@ Steps, each measured on hardware against the baseline, one at a time:
     bound (render thread 11.4 ms replay + 13.9 ms waiting in the swap) with the game thread at
     ~19.7 ms too. Next for the crowd: the sprites' fill cost and the crowd's CPU.
   - Main menu: 59.9 FPS either way.
+  - The user checked visuals and timing feel on hardware (2026-11-17): fine.
+- **Crowd at 60 (2026-11-17): patches 0044 and 0045.** I Love Rock and Roll, crowd on, worst
+  5 s windows (the widest shots) as the measure. Measuring switches (args.txt), one run each:
+  | Flat sprites | Worst 5 s | GPU wait (render thread swap) |
+  |---|---|---|
+  | as upstream (cutout, depth written; batched per block) | 39.4 | 14.5 ms |
+  | none (`GHVITA_CROWD_SPRITES=0`) | 51.6 | 0.1 |
+  | cutout, not blended | 39.5 | 14.3 |
+  | cutout, 64x128 cut-outs | 40.2 | 13.6 |
+  | cutout, no depth writes | 37.5 | 16.1 |
+  | no cutout, depth written, untextured / textured | 51.4 / 51.4 | 0.1 / 0.2 |
+  | no cutout, no depth writes, sorted (the correct order) | 33.8 | 16.1 |
+  | the same, untextured | 38.9 | 12.6 |
+  | the same, minimal fragment shader (test) | 47.5 | 7.6 |
+  - The sprites cover **8-10 screens of pixels a frame** in those shots (measured, temporary
+    code): the near ones are large. The cutout's `discard` made them slow, and without it (and
+    without depth writes, needed for a correct look) the cost is the fragment shader per pixel:
+    its uniform branches (texture / decal / untextured paths) about doubled it. The fast
+    no-cutout rows are not usable: the sprites' transparent parts write depth and hide those
+    behind.
+  - **0044:** the scene program in four variants (cutout / no cutout / no cutout plain texture
+    / no cutout untextured), picked per draw in `drawMesh`, the same results. Crowd off
+    unchanged (59.9 FPS both songs).
+  - **0045:** sprites without the cutout, blended, no depth writes, sorted far to near, runs
+    of one block per draw (~30 draws, was ~90). A listed deviation (soft edges; later
+    transparent things behind a sprite show through).
+  - Result, crowd on: 54.7 → **56.0 FPS** on average, worst window 39.4 → **47.3**; most
+    heavy windows are now ~50 FPS with the GPU idle and the **game thread at ~20 ms**: crowd
+    update 0.5, impostors 0.9, crowd draw 2.6 (8 3D members ~85 draws + sprite runs), on top
+    of band 4.3, guitarist 2.5, stage 2.8, track 2.1. Next for the crowd: game thread time.
 - Measuring aids added: perf line counts frames over 17 ms; `GHVITA_GPUTIME=1`;
   `GHVITA_UNHIDE=key,...` (enhanced.json may set those hidden keys); `GHVITA_LOWP_FRAG=1`.
 
@@ -439,6 +469,7 @@ Alternatives:
 - Button play instead of guitar
 - Rear touchpad: never a screen touch; optional Rear Touch Strum (off by default, patch 0036)
 - Joypad mode: a strum plays the held frets again when that hits a note, never a miss (patch 0039); the original ignores strums there
+- Flat crowd sprites without the alpha cutout: blended, sorted far to near, no depth writes (patch 0045). Soft cut-out edges show faintly; something drawn later behind a sprite (a glow, a flare test) is not hidden by it. `GHVITA_CROWD_CUTOUT=1` restores upstream's drawing
 
 ## Upstream report queue
 
@@ -517,3 +548,4 @@ with their SceneRenderer), fixed upstream in gd01 1.1.13.
 - 2026-11-17: vitaGL SAMPLERS / INDICES / SAFER_DRAW speed hacks, measured together: no gain (55.4 vs 56.3 FPS crowd off), not used; `tools/build-vitagl.sh` takes `VITAGL_EXTRA`. Vita back on the normal build and the user's enhanced.json. Next: particles, then the GL thread.
 - 2026-11-17: Patch 0043, particle quads (reused buffer, index pattern kept on the GPU): crowd off 56.3 → 58.9 FPS (cpu 17.6 → 16.3 ms, frames over 17 ms 158 → 53 a window), crowd on 49.4 → 51.9. Vita runs this build; enhanced.json back to the user's (crowd on, fps counter). Next: the user's visual check, then the GL thread.
 - 2026-11-17: GL thread (vita/src/gl_thread.cpp): crowd off 58.9 → 59.9 FPS in both gate songs (frames over 17 ms ~1-3 a window), crowd on 51.9 → 54.7 (widest shots GPU bound, ~39). Menu 59.9. Vita runs this build; enhanced.json is the user's (crowd on, fps counter). Next: the user's check (visuals, timing feel), then the crowd.
+- 2026-11-17: Crowd: patches 0044 (scene program variants) and 0045 (flat sprites without cutout, blended far to near): crowd on 54.7 → 56.0 FPS, worst window 39.4 → 47.3; crowd off unchanged 59.9. Heavy crowd shots are now game-thread bound (~20 ms). Vita runs this build; enhanced.json is the user's (crowd on, fps counter). Next: the user's visual check of the crowd, then the game thread in crowd shots.

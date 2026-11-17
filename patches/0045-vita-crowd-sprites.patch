@@ -1,0 +1,161 @@
+diff --git a/gd-game-01/engine/src/render/crowd_renderer.cpp b/gd-game-01/engine/src/render/crowd_renderer.cpp
+--- a/gd-game-01/engine/src/render/crowd_renderer.cpp
++++ b/gd-game-01/engine/src/render/crowd_renderer.cpp
+@@ -3,6 +3,7 @@
+ // Modified by irxd on 2026-11-11: PS Vita: crowd hidden at Max FPS 60; impostors refreshed and members animated half per frame.
+ // Modified by irxd on 2026-11-12: PS Vita: the impostors refreshed in a set number of groups (3 at 60 FPS).
+ // Modified by irxd on 2026-11-11: PS Vita: Crowd setting (on: at most 8 3D members, the nearest first; off: hidden).
++// Modified by irxd on 2026-11-17: PS Vita: flat sprites without the alpha cutout, blended far to near, batched.
+ #include "render/crowd_renderer.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -10,6 +11,7 @@
+ #include <algorithm>
+ #include <cmath>
+ #include <cstdio>
++#include <cstdlib>
+ 
+ #include "data/dta.h"
+ #include "data/game_data.h"
+@@ -186,6 +188,10 @@
+ void CrowdRenderer::setVitaMemberCap(int members) { gVitaMemberCap = std::max(-1, members); }
+ bool CrowdRenderer::vitaShown() { return gVitaMemberCap >= 0; }
+ void CrowdRenderer::setVitaImpostorGroups(int groups) { gVitaImpostorGroups = std::clamp(groups, 1, 6); }
++CrowdRenderer::~CrowdRenderer() {
++    for (int mesh : vitaSpriteMeshes_)
++        if (mesh > 0) renderer_.deleteMesh(mesh);
++}
+ #endif
+ 
+ void CrowdRenderer::tempoEvent(const std::string& event) {
+@@ -539,6 +545,95 @@
+     Renderer::RenderState st;
+     st.blend = Blend::Alpha;
+     st.alphaCutout = true;
++#if defined(__vita__)
++    // PS Vita: the flat sprites without the alpha cutout. In the widest crowd
++    // shots they cover 8-10 screens of pixels a frame, and the cutout's discard
++    // cost the GPU ~14 ms there (worst 5 s 39 FPS, hardware 2026-11-17).
++    // Blended and not depth-writing instead, they are drawn far to near so
++    // nearer sprites cover farther ones, with the renderer's plain texture
++    // program (Renderer::initVitaPrograms): worst 5 s 47 FPS. Consecutive
++    // sprites of one block share a draw, the quads transformed here
++    // (FastBillboardXYZ: corner = position + x * camera right + z * camera up).
++    // Deviation: pixels under half alpha (the cut-out's soft edge) show
++    // faintly, and something drawn later behind a sprite is not hidden by it.
++    // args.txt: GHVITA_CROWD_CUTOUT=1 draws them as upstream (cut out, depth
++    // written, block by block); GHVITA_CROWD_SPRITES=0 draws none (measuring).
++    static const bool vitaSprites = [] {
++        const char* e = std::getenv("GHVITA_CROWD_SPRITES");
++        return !(e && e[0] == '0');
++    }();
++    static const bool vitaCutout = [] {
++        const char* e = std::getenv("GHVITA_CROWD_CUTOUT");
++        return e && e[0] == '1';
++    }();
++    if (!vitaSprites) return;
++    if (!vitaCutout) {
++        vitaOrder_.clear();
++        for (int bi = 0; bi < int(blocks_.size()); ++bi) {
++            const Block& b = blocks_[size_t(bi)];
++            if (b.archetype >= int(members_.size()) || !members_[size_t(b.archetype)].target) continue;
++            for (int i : b.shown) {
++                const auto& p = b.mm->instances[size_t(i)].pos;
++                vitaOrder_.push_back({m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15], bi, i});  // clip w: distance
++            }
++        }
++        std::stable_sort(vitaOrder_.begin(), vitaOrder_.end(), [](const VitaSprite& a, const VitaSprite& b) { return a.w > b.w; });
++        st.alphaCutout = false;
++        st.depthWrite = false;
++    }
++    const float hw = height_ * 0.25f, hh = height_ * 0.5f;
++    const auto& R = camRot_;  // rows right, forward, up
++    // Corners in vitaQuadMesh's order (0 1 2, 0 2 3): (-, -) (+, -) (+, +) (-, +),
++    // the same two triangles and winding as quad_.
++    const float cx[4] = {-hw, hw, hw, -hw}, cz[4] = {-hh, -hh, hh, hh}, cu[4] = {0, 1, 1, 0}, cv[4] = {0, 0, 1, 1};
++    size_t draws = 0;
++    // One run: `count` sprites of block `bi`, instance indices from next().
++    auto drawRun = [&](int bi, size_t count, auto next) {
++        if (vitaSprites_.size() < count * 4) vitaSprites_.resize(count * 4);
++        Vertex* out = vitaSprites_.data();
++        const auto& inst = blocks_[size_t(bi)].mm->instances;
++        for (size_t s = 0; s < count; ++s) {
++            const auto& p = inst[size_t(next())].pos;
++            for (int k = 0; k < 4; ++k, ++out) {
++                out->x = p[0] + cx[k] * R[0] + cz[k] * R[6];
++                out->y = p[1] + cx[k] * R[1] + cz[k] * R[7];
++                out->z = p[2] + cx[k] * R[2] + cz[k] * R[8];
++                out->u = cu[k], out->v = cv[k];
++                out->r = out->g = out->b = out->a = 255;
++            }
++        }
++        if (vitaSpriteMeshes_.size() <= draws) vitaSpriteMeshes_.push_back(0);
++        int& mesh = vitaSpriteMeshes_[draws++];
++        renderer_.vitaQuadMesh(mesh, vitaSprites_.data(), count);
++        st.texture = members_[size_t(blocks_[size_t(bi)].archetype)].target;
++        renderer_.drawMesh(mesh, viewProj.m.data(), st);
++    };
++    if (vitaCutout) {
++        for (int bi = 0; bi < int(blocks_.size()); ++bi) {
++            const Block& b = blocks_[size_t(bi)];
++            if (b.archetype >= int(members_.size()) || !members_[size_t(b.archetype)].target || b.shown.empty()) continue;
++            auto it = b.shown.begin();
++            drawRun(bi, b.shown.size(), [&] { return *it++; });
++        }
++    } else {
++        // A run: consecutive sprites of one block (each block has its own cut-out).
++        for (size_t s = 0; s < vitaOrder_.size();) {
++            size_t e = s + 1;
++            while (e < vitaOrder_.size() && vitaOrder_[e].block == vitaOrder_[s].block) ++e;
++            size_t at = s;
++            drawRun(vitaOrder_[s].block, e - s, [&] { return vitaOrder_[at++].inst; });
++            s = e;
++        }
++    }
++    static bool vitaLogged = false;
++    if (!vitaLogged) {
++        vitaLogged = true;
++        SDL_Log("crowd: flat sprites %s; %u draws for %u sprites this frame",
++                vitaCutout ? "cut out and depth written, block by block (GHVITA_CROWD_CUTOUT=1)" : "blended far to near, no cutout",
++                unsigned(draws), unsigned(vitaCutout ? 0 : vitaOrder_.size()));
++    }
++    return;
++#endif
+     for (const Block& b : blocks_) {
+         if (b.archetype >= int(members_.size()) || !members_[size_t(b.archetype)].target) continue;
+         st.texture = members_[size_t(b.archetype)].target;
+diff --git a/gd-game-01/engine/src/render/crowd_renderer.h b/gd-game-01/engine/src/render/crowd_renderer.h
+--- a/gd-game-01/engine/src/render/crowd_renderer.h
++++ b/gd-game-01/engine/src/render/crowd_renderer.h
+@@ -3,6 +3,7 @@
+ // Modified by irxd on 2026-11-11: PS Vita: crowd hidden at Max FPS 60; impostors refreshed half per frame.
+ // Modified by irxd on 2026-11-11: PS Vita: Crowd setting (on: at most 8 3D members, the nearest first; off: hidden).
+ // Modified by irxd on 2026-11-12: PS Vita: impostor refresh groups (setVitaImpostorGroups).
++// Modified by irxd on 2026-11-17: PS Vita: flat sprites without the alpha cutout, blended far to near, batched.
+ #pragma once
+ 
+ #include <array>
+@@ -63,6 +64,7 @@
+     // The crowd cut-outs (impostors) re-rendered in this many groups, one group
+     // a frame (2 at 30 FPS: each at 15 Hz; 3 at 60 FPS: each at 20 Hz).
+     static void setVitaImpostorGroups(int groups);
++    ~CrowdRenderer();  // PS Vita: frees the batched sprite meshes
+ #endif
+ 
+ private:
+@@ -96,6 +98,15 @@
+     std::vector<Member> members_;  // crowd0.. in creation order; 0..5 are the impostor archetypes
+ #if defined(__vita__)
+     int vitaImpostorFrame_ = 0;  // PS Vita: impostors refreshed half per frame (all on the first)
++    // PS Vita: the flat sprites as meshes of camera-facing quads, one a run of
++    // sprites of one block in far-to-near order (draw); the vertices reused.
++    struct VitaSprite {
++        float w;  // clip w: the distance along the view
++        int block, inst;
++    };
++    std::vector<VitaSprite> vitaOrder_;
++    std::vector<int> vitaSpriteMeshes_;
++    std::vector<Vertex> vitaSprites_;
+ #endif
+     std::list<int> pool_;          // LIFO: the last created first
+     std::vector<int> active_;      // active_[i] stands on the region's instance i
