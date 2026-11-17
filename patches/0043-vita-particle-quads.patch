@@ -1,0 +1,157 @@
+diff --git a/gd-game-01/engine/src/render/renderer.cpp b/gd-game-01/engine/src/render/renderer.cpp
+--- a/gd-game-01/engine/src/render/renderer.cpp
++++ b/gd-game-01/engine/src/render/renderer.cpp
+@@ -4,6 +4,7 @@
+ // Modified by irxd on 2026-11-11: PS Vita: Max FPS 30 (default, steady) or 60, paced by vitaGL's vblank interval.
+ // Modified by irxd on 2026-11-11: PS Vita: bone palette skinning, so a character's skinned pieces can be merged into fewer draws.
+ // Modified by irxd on 2026-11-17: PS Vita: a scene program without the alpha cutout's discard, for draws with no cutout.
++// Modified by irxd on 2026-11-17: PS Vita: quad meshes (particles) refilled without re-uploading their indices.
+ #include "render/renderer.h"
+ #if defined(__vita__)
+ #include "vita_display.h"  // the Vita port's vita/src: vblank interval
+@@ -1088,6 +1089,36 @@
+     m.count = static_cast<int>(indices.size());
+ }
+ 
++#if defined(__vita__)
++void Renderer::vitaQuadMesh(int& mesh, const Vertex* v, size_t quads) {
++    const size_t cap = mesh > 0 && size_t(mesh) < vitaQuadCapacity_.size() ? vitaQuadCapacity_[size_t(mesh)] : 0;
++    if (core_ || mesh <= 0 || quads > cap) {
++        // New, or more quads than the index pattern holds: both buffers, the
++        // pattern for twice the quads (fewer regrowths).
++        const size_t newCap = core_ ? quads : std::max<size_t>({quads, cap * 2, 64});
++        std::vector<uint32_t> idx(newCap * 6);
++        for (size_t q = 0; q < newCap; ++q) {
++            const uint32_t b = uint32_t(q * 4);
++            uint32_t* o = &idx[q * 6];
++            o[0] = b, o[1] = b + 1, o[2] = b + 2, o[3] = b, o[4] = b + 2, o[5] = b + 3;
++        }
++        const std::vector<Vertex> verts(v, v + quads * 4);
++        if (mesh > 0) updateMesh(mesh, verts, idx);
++        else mesh = createMesh(verts, idx);
++        if (core_ || mesh <= 0) return;
++        if (vitaQuadCapacity_.size() <= size_t(mesh)) vitaQuadCapacity_.resize(size_t(mesh) + 1, 0);
++        vitaQuadCapacity_[size_t(mesh)] = newCap;
++    } else {
++        GpuMesh& m = meshes_[size_t(mesh)];
++        if (!m.vao) return;  // freed (deleteMesh)
++        gl::glBindVertexArray(m.vao);
++        gl::glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
++        gl::glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(quads * 4 * sizeof(Vertex)), v, GL_STATIC_DRAW);
++    }
++    meshes_[size_t(mesh)].count = static_cast<int>(quads * 6);
++}
++#endif
++
+ void Renderer::drawMesh(int mesh, const float* mvp, const RenderState& st) {
+     if (core_) return core_->drawMesh(mesh, mvp, st);
+     if (mesh <= 0 || meshes_[mesh].count == 0) return;
+diff --git a/gd-game-01/engine/src/render/renderer.h b/gd-game-01/engine/src/render/renderer.h
+--- a/gd-game-01/engine/src/render/renderer.h
++++ b/gd-game-01/engine/src/render/renderer.h
+@@ -2,6 +2,7 @@
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-11: PS Vita: bone palette skinning, so a character's skinned pieces can be merged into fewer draws.
+ // Modified by irxd on 2026-11-17: PS Vita: a scene program without the alpha cutout's discard, for draws with no cutout.
++// Modified by irxd on 2026-11-17: PS Vita: quad meshes (particles) refilled without re-uploading their indices.
+ #pragma once
+ 
+ #include <SDL3/SDL.h>
+@@ -136,6 +137,12 @@
+     int createMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
+     // Replaces a mesh's contents (for text that changes).
+     void updateMesh(int mesh, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
++#if defined(__vita__)
++    // PS Vita: a mesh of quads (4 vertices each, drawn as 0 1 2 0 2 3), made
++    // or refilled from `quads` quads at `v`. Only the vertices are uploaded:
++    // the index pattern is uploaded again only when the quads outgrow it.
++    void vitaQuadMesh(int& mesh, const Vertex* v, size_t quads);
++#endif
+     struct RenderState {
+         int texture = 0;
+         Blend blend = Blend::Opaque;
+@@ -260,6 +267,7 @@
+     bool vitaLocsOpaque_ = false;
+     void initVitaOpaqueProgram();
+     void vitaUseLocations(bool opaque);
++    std::vector<size_t> vitaQuadCapacity_;  // per mesh: quads its index buffer holds (vitaQuadMesh)
+ #endif
+     int uMvp_ = -1, uTex_ = -1, uUseTex_ = -1;
+     int uTexgen_ = -1, uTexU_ = -1, uTexO_ = -1, uEye_ = -1, uCamRight_ = -1, uCamUp_ = -1, uTexDecal_ = -1;
+diff --git a/gd-game-01/engine/src/render/scene_renderer.cpp b/gd-game-01/engine/src/render/scene_renderer.cpp
+--- a/gd-game-01/engine/src/render/scene_renderer.cpp
++++ b/gd-game-01/engine/src/render/scene_renderer.cpp
+@@ -4,6 +4,7 @@
+ // Modified by irxd on 2026-11-11: PS Vita: meshes outside the view (by a bounding sphere of their vertices) are not drawn.
+ // Modified by irxd on 2026-11-11: PS Vita: a character's consecutive skinned pieces drawn as merged meshes with a bone palette.
+ // Modified by irxd on 2026-11-11: PS Vita: the merged character meshes freed with their SceneRenderer (they leaked per venue).
++// Modified by irxd on 2026-11-17: PS Vita: particle quads built in a reused buffer, their index pattern uploaded once.
+ #include "render/scene_renderer.h"
+ 
+ #include "render/gl.h"
+@@ -887,6 +888,44 @@
+     Mat4 space = p.relativeMotion >= 1 ? model * Mat4::fromRowXfm(p.trans.world.rot, p.trans.world.pos) : model;
+     // The camera's right / up in world space (rows 0 and 2).
+     const auto& c = camera_.rot;
++#if defined(__vita__)
++    // PS Vita: the same quads written straight into one reused buffer (no
++    // per-frame vectors or copies), and only the vertices uploaded (the
++    // index pattern stays on the GPU: Renderer::vitaQuadMesh).
++    std::array<float, 3> amb{1, 1, 1};
++    const SceneObject* mo = resolve(p.mat);
++    if (mo && mo->mat && mo->mat->useEnviron && env_)
++        for (int k = 0; k < 3; ++k) amb[size_t(k)] = env_->ambient[size_t(k)];
++    const size_t most = (p.live.size() + p.preserved.size()) * 4;
++    if (vitaQuads_.size() < most) vitaQuads_.resize(most);
++    Vertex* out = vitaQuads_.data();
++    const auto& m = space.m;  // column-major
++    auto quad = [&](const std::array<float, 3>& pos, const std::array<float, 4>& color, float size) {
++        const float h = std::max(size, 0.0f) * 0.5f;
++        if (h <= 0) return;
++        const float cx = m[0] * pos[0] + m[4] * pos[1] + m[8] * pos[2] + m[12];
++        const float cy = m[1] * pos[0] + m[5] * pos[1] + m[9] * pos[2] + m[13];
++        const float cz = m[2] * pos[0] + m[6] * pos[1] + m[10] * pos[2] + m[14];
++        const uint8_t r = unit(color[0] * amb[0]), g = unit(color[1] * amb[1]), b = unit(color[2] * amb[2]),
++                      a = unit(color[3]);
++        // Camera right (row 0) and up (row 2) times h; corners (-1, 1) (1, 1) (1, -1) (-1, -1).
++        const float rx = c[0] * h, ry = c[1] * h, rz = c[2] * h, ux = c[6] * h, uy = c[7] * h, uz = c[8] * h;
++        const float sx[4] = {-1, 1, 1, -1}, sz[4] = {1, 1, -1, -1}, uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
++        for (int k = 0; k < 4; ++k, ++out) {
++            out->x = cx + rx * sx[k] + ux * sz[k];
++            out->y = cy + ry * sx[k] + uy * sz[k];
++            out->z = cz + rz * sx[k] + uz * sz[k];
++            out->u = uv[k][0], out->v = uv[k][1];
++            out->r = r, out->g = g, out->b = b, out->a = a;
++        }
++    };
++    for (const auto& q : p.live) quad(q.pos, q.color, q.size);
++    for (const auto& q : p.preserved) quad(q.pos, q.color, q.size);
++    const size_t quads = size_t(out - vitaQuads_.data()) / 4;
++    if (quads == 0) return;
++    int& mesh = particleMeshes_[o.name];
++    renderer_.vitaQuadMesh(mesh, vitaQuads_.data(), quads);
++#else
+     std::vector<Vertex> verts;
+     std::vector<uint32_t> idx;
+     verts.reserve(p.live.size() * 4);
+@@ -933,6 +972,7 @@
+     int& mesh = particleMeshes_[o.name];
+     if (mesh) renderer_.updateMesh(mesh, verts, idx);
+     else mesh = renderer_.createMesh(verts, idx);
++#endif
+     Renderer::RenderState st;
+     st.depthWrite = false;
+     if (mo && mo->mat) {
+diff --git a/gd-game-01/engine/src/render/scene_renderer.h b/gd-game-01/engine/src/render/scene_renderer.h
+--- a/gd-game-01/engine/src/render/scene_renderer.h
++++ b/gd-game-01/engine/src/render/scene_renderer.h
+@@ -271,6 +271,9 @@
+     void vitaDrawSingle(const VitaPiece& p);
+     void vitaFlush();
+     bool vitaBatching_ = false;
++    // drawParticles' quads, reused from system to system and frame to frame
++    // (only grown: the normal and bone weight fields stay zero).
++    std::vector<Vertex> vitaQuads_;
+     // lightingFor's last result, reused for the next piece with the same
+     // material and environ during one top-level draw (lights do not move
+     // within it); any other lightingFor call drops it.

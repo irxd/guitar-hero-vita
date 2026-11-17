@@ -344,6 +344,19 @@ Steps, each measured on hardware against the baseline, one at a time:
   17.6 without; noise. Not split further. `tools/build-vitagl.sh` takes `VITAGL_EXTRA="..."`
   for such trials. The remaining vitaGL cost is its own per-draw work (~11 us a draw, ~4-5 ms a
   frame at ~350 draws): the GL thread is what removes it from the main thread.
+- **Patch 0043 (2026-11-17): particle quads.** Temporary timers (`GHVITA_PHASES=2`, removed)
+  split "venue draw: rest" (2.6 ms): particles 2.2-2.3 ms (1.6 building the quads, 0.7
+  uploading ~1,000 quads, ~250 KB a frame), transparent views otherwise ~0.5, floor spot /
+  extra lights / flare tests ~0. The particle code built three temporary lists per system each
+  frame and uploaded a fresh index list each time. Now the quads go straight into one reused
+  buffer (bit-identical vertices) and `Renderer::vitaQuadMesh` keeps the index pattern on the
+  GPU. Same benchmark:
+  - crowd off: 56.3 → **58.9 FPS**, cpu 17.6 → 16.3 ms, frames over 17 ms per window 158 → 53;
+    rest 2.6 → 1.5 ms. (26 windows: the song started later in that run.)
+  - crowd on: 49.4 → **51.9 FPS** (worst window 39.4), cpu 19.0 ms.
+  - The remaining upload (~230 KB) is the 52-byte vertex (normal and bone weights unused by
+    particles); a compact particle layout would roughly halve it (~0.3 ms), not done.
+  - vita-loop's "cannot quit the app" before a launch is harmless (nothing running yet).
 - Measuring aids added: perf line counts frames over 17 ms; `GHVITA_GPUTIME=1`;
   `GHVITA_UNHIDE=key,...` (enhanced.json may set those hidden keys); `GHVITA_LOWP_FRAG=1`.
 
@@ -471,3 +484,4 @@ with their SceneRenderer), fixed upstream in gd01 1.1.13.
 - 2026-11-16: Flat-only crowd at 60 tested (user's idea): little gain; the sprites themselves cost the GPU ~8-10 ms in wide shots. Experiment switches removed; build back to the committed state (the Vita still runs the experiment eboot until the next deploy; its switches are off unless set in args.txt).
 - 2026-11-17: Patch 0042, opaque scene program (no discard for draws without the alpha cutout): GPU no longer the limit; crowd off 52.2 → 56.3 FPS, crowd on 46.1 → 49.4 (widest shot 33 → 39.6). The user checked visuals on hardware (60 FPS, crowd on): nothing different. Next: CPU.
 - 2026-11-17: vitaGL SAMPLERS / INDICES / SAFER_DRAW speed hacks, measured together: no gain (55.4 vs 56.3 FPS crowd off), not used; `tools/build-vitagl.sh` takes `VITAGL_EXTRA`. Vita back on the normal build and the user's enhanced.json. Next: particles, then the GL thread.
+- 2026-11-17: Patch 0043, particle quads (reused buffer, index pattern kept on the GPU): crowd off 56.3 → 58.9 FPS (cpu 17.6 → 16.3 ms, frames over 17 ms 158 → 53 a window), crowd on 49.4 → 51.9. Vita runs this build; enhanced.json back to the user's (crowd on, fps counter). Next: the user's visual check, then the GL thread.
