@@ -335,6 +335,15 @@ Steps, each measured on hardware against the baseline, one at a time:
     17 ms per window unchanged, ~158 crowd off). Next: the CPU steps (speed hacks, particles,
     GL thread), then measure the crowd again.
   - Visual check on hardware by the user (2026-11-17, 60 FPS, crowd on): nothing different.
+- **vitaGL speed hacks (2026-11-17): no gain, not used.** Read first: gd01's meshes are all
+  in VBOs with 32-bit indices from a VBO, so they take the vertex layout cache's hit path, where
+  `SAMPLERS_SPEEDHACK` only drops a NULL check per texture unit and `INDICES_SPEEDHACK` one
+  compare; `DRAW_SPEEDHACK=2` (`SAFER_DRAW_SPEEDHACK`) only touches client-side arrays over
+  32 KB (gd01 streams through a VBO). `DRAW_SPEEDHACK=1` would turn the layout cache off.
+  Measured all three together (crowd off, same benchmark): 55.4 FPS, cpu 17.9 ms vs 56.3 /
+  17.6 without; noise. Not split further. `tools/build-vitagl.sh` takes `VITAGL_EXTRA="..."`
+  for such trials. The remaining vitaGL cost is its own per-draw work (~11 us a draw, ~4-5 ms a
+  frame at ~350 draws): the GL thread is what removes it from the main thread.
 - Measuring aids added: perf line counts frames over 17 ms; `GHVITA_GPUTIME=1`;
   `GHVITA_UNHIDE=key,...` (enhanced.json may set those hidden keys); `GHVITA_LOWP_FRAG=1`.
 
@@ -461,3 +470,4 @@ with their SceneRenderer), fixed upstream in gd01 1.1.13.
 - 2026-11-16: Hardware run 21 (baseline for v0.2.0): at 60 FPS the GPU is at the limit as well as the CPU (light shots both ~17 ms, widest crowd shot GPU ~30 ms). Native resolution is slower than 448 in play (fragment bound); half-precision fragment shaders gain nothing. Next: test mipmaps on venue textures (bandwidth), then the CPU steps. Vita's enhanced.json restored to the user's (max_fps 60).
 - 2026-11-16: Flat-only crowd at 60 tested (user's idea): little gain; the sprites themselves cost the GPU ~8-10 ms in wide shots. Experiment switches removed; build back to the committed state (the Vita still runs the experiment eboot until the next deploy; its switches are off unless set in args.txt).
 - 2026-11-17: Patch 0042, opaque scene program (no discard for draws without the alpha cutout): GPU no longer the limit; crowd off 52.2 → 56.3 FPS, crowd on 46.1 → 49.4 (widest shot 33 → 39.6). The user checked visuals on hardware (60 FPS, crowd on): nothing different. Next: CPU.
+- 2026-11-17: vitaGL SAMPLERS / INDICES / SAFER_DRAW speed hacks, measured together: no gain (55.4 vs 56.3 FPS crowd off), not used; `tools/build-vitagl.sh` takes `VITAGL_EXTRA`. Vita back on the normal build and the user's enhanced.json. Next: particles, then the GL thread.

@@ -23,6 +23,9 @@ COMMIT="${VITAGL_COMMIT:-e1473ff}"
 SRC="${SRC:-/root/build/vitagl-src}"
 OUT="${OUT:-/root/build/vitagl}"
 FLAGS=(NO_DEBUG=1 HAVE_VERTEX_LAYOUT_CACHE=1)
+# Extra make options for measuring, e.g. VITAGL_EXTRA="SAMPLERS_SPEEDHACK=1".
+# shellcheck disable=SC2206
+FLAGS+=(${VITAGL_EXTRA:-})
 
 if [ -f "$SRC/Makefile" ] && [ ! -e "$SRC/.git" ]; then
     # A source release's third_party/vitaGL: already the commit we link.
