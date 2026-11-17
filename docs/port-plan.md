@@ -357,6 +357,37 @@ Steps, each measured on hardware against the baseline, one at a time:
   - The remaining upload (~230 KB) is the 52-byte vertex (normal and bone weights unused by
     particles); a compact particle layout would roughly halve it (~0.3 ms), not done.
   - vita-loop's "cannot quit the app" before a launch is harmless (nothing running yet).
+- **GL thread (2026-11-17): `vita/src/gl_thread.cpp`, no upstream patch.** Every function from
+  `SDL_GL_GetProcAddress` gets a proxy (all of vitaGL's lookup table, `gl_thread_names.h`).
+  State, uniforms, binds, draws, buffer data, texture uploads and deletes are recorded into an
+  8 MB ring (pointer data copied); a render thread replays them. Everything else (`glGen*`,
+  `glGet*`, `glReadPixels`, ...) drains the ring and runs on the game thread while the render
+  thread is idle, so vitaGL is never entered by two threads at once (it ran fine driven from a
+  thread other than the one that initialised it). The swap is queued too; the game thread runs at
+  most one frame ahead. Draws from client memory (none in gd01) would run directly. The Vita
+  layer's own vitaGL calls (shader and texture hooks, screenshots, memory reports, swap
+  interval) sit under `glthread::Direct`. `GHVITA_GL_THREAD=0` turns it off. Measured lessons:
+  - One wake-up per command (a semaphore signal whenever the render thread slept) and an
+    unpinned game thread made it *slower* (48.6 FPS, frames up to 95 ms). Commands now go out in
+    batches of 64; the game thread is pinned to core 0.
+  - Both threads touching the shared read position every command cost about as much as the GL
+    work moved (55.4 FPS). The game thread now checks room against a cached read position; the
+    render thread publishes it every 32 commands, after a swap and at a batch end.
+  - On core 1 the render thread took turns with the menu movie's decoder (menu 45 FPS; with
+    a higher priority, the movie then lost a third of its pictures). It now runs on core 2
+    (movie colour conversion, log writer, preview loader) at default priority - 8: menu 59.9,
+    movie 133-150 of 150 pictures shown per 5 s (150 with the thread off).
+  - Texture uploads are queued (the menu movie re-uploads its picture each frame: as a direct
+    call each one waited ~16 ms for the render thread's vblank).
+  Results, Max FPS 60, seed 1, 28 windows of 5 s:
+  - I Love Rock and Roll, crowd off: 58.9 → **59.9 FPS** (worst window 59.4), game thread 16.3
+    → 15.1 ms, frames over 17 ms per window 53 → **3**. Render thread ~8 ms replay a frame.
+  - Smoke on the Water, crowd off: **59.9 FPS** (worst 59.4), 0-9 (mostly 1-3) frames over 17 ms
+    per window. The gate (≤ 2 per window) is nearly met; the leftovers are single hitches.
+  - Crowd on: 51.9 → **54.7 FPS**; half the windows 58-60; the widest shots ~39 FPS, now GPU
+    bound (render thread 11.4 ms replay + 13.9 ms waiting in the swap) with the game thread at
+    ~19.7 ms too. Next for the crowd: the sprites' fill cost and the crowd's CPU.
+  - Main menu: 59.9 FPS either way.
 - Measuring aids added: perf line counts frames over 17 ms; `GHVITA_GPUTIME=1`;
   `GHVITA_UNHIDE=key,...` (enhanced.json may set those hidden keys); `GHVITA_LOWP_FRAG=1`.
 
@@ -485,3 +516,4 @@ with their SceneRenderer), fixed upstream in gd01 1.1.13.
 - 2026-11-17: Patch 0042, opaque scene program (no discard for draws without the alpha cutout): GPU no longer the limit; crowd off 52.2 → 56.3 FPS, crowd on 46.1 → 49.4 (widest shot 33 → 39.6). The user checked visuals on hardware (60 FPS, crowd on): nothing different. Next: CPU.
 - 2026-11-17: vitaGL SAMPLERS / INDICES / SAFER_DRAW speed hacks, measured together: no gain (55.4 vs 56.3 FPS crowd off), not used; `tools/build-vitagl.sh` takes `VITAGL_EXTRA`. Vita back on the normal build and the user's enhanced.json. Next: particles, then the GL thread.
 - 2026-11-17: Patch 0043, particle quads (reused buffer, index pattern kept on the GPU): crowd off 56.3 → 58.9 FPS (cpu 17.6 → 16.3 ms, frames over 17 ms 158 → 53 a window), crowd on 49.4 → 51.9. Vita runs this build; enhanced.json back to the user's (crowd on, fps counter). Next: the user's visual check, then the GL thread.
+- 2026-11-17: GL thread (vita/src/gl_thread.cpp): crowd off 58.9 → 59.9 FPS in both gate songs (frames over 17 ms ~1-3 a window), crowd on 51.9 → 54.7 (widest shots GPU bound, ~39). Menu 59.9. Vita runs this build; enhanced.json is the user's (crowd on, fps counter). Next: the user's check (visuals, timing feel), then the crowd.

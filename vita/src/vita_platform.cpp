@@ -49,6 +49,7 @@
 #include <utility>
 #include <vector>
 
+#include "gl_thread.h"
 #include "glsl_es100.h"
 #include "texture_palette.h"
 #include "vita_display.h"
@@ -299,6 +300,7 @@ void frameStatsSwap(uint64_t swapStart, uint64_t swapEnd) {
                 double(gFrame.maxGpuTailNs) / 1e6);
     gSpikeReports = 0;
     if (gPhaseLevel > 0) reportPhases(f);
+    vita::glthread::report(f);
     gFrame = {};
     gFrameStatsStart = swapEnd;
 }
@@ -325,6 +327,7 @@ void logAllocFailure(const char* what, size_t size) {
 }
 
 void reportMemory(const char* when) {
+    vita::glthread::Direct direct;
     const struct mallinfo mi = mallinfo();
     if (size_t(mi.uordblks) > gPeakHeapUsed) gPeakHeapUsed = size_t(mi.uordblks);
     SDL_Log("vita: memory [%s]: heap %u / %u MB (peak %u MB); vitaGL free VRAM %u MB, RAM %u MB; "
@@ -455,6 +458,7 @@ void hookActiveTexture(GLenum unit) {
 bool uploadPaletted(GLenum target, GLsizei w, GLsizei h, const void* pixels) {
     static std::vector<uint8_t> blob;  // reused: no allocation churn per upload
     if (!vita::paletteRgba8(static_cast<const uint8_t*>(pixels), w, h, blob)) return false;
+    vita::glthread::Direct direct;
     while (glGetError() != GL_NO_ERROR) {}
     glCompressedTexImage2D(target, 0, GL_PALETTE8_RGBA8_OES, w, h, 0, GLsizei(blob.size()), blob.data());
     if (const GLenum err = glGetError(); err != GL_NO_ERROR) {
@@ -557,6 +561,7 @@ void drawArraysImpl(GLenum mode, GLint first, GLsizei count) {
         SDL_Log("vita: glDrawArrays(%d, %d) needs more vertex ids than %d; not drawn", first, count, kVertexIdCount);
         return;
     }
+    vita::glthread::Direct direct;  // the calls below go straight to vitaGL
     if (!gVertexIdBuffer) {
         float ids[kVertexIdCount];
         for (GLsizei i = 0; i < kVertexIdCount; ++i) ids[i] = float(i);
@@ -599,6 +604,7 @@ void hookAttachShader(GLuint program, GLuint shader) {
 }
 
 void logMemory(const char* when) {
+    vita::glthread::Direct direct;
     SDL_Log("vita:   [%s] free VRAM %u KB, RAM %u KB, phycont %u KB, newlib %u KB", when,
             unsigned(vglMemFree(VGL_MEM_VRAM) >> 10), unsigned(vglMemFree(VGL_MEM_RAM) >> 10),
             unsigned(vglMemFree(VGL_MEM_PHYCONT) >> 10), unsigned(vglMemFree(VGL_MEM_EXTERNAL) >> 10));
@@ -701,6 +707,7 @@ void hookShaderSource(GLuint shader, GLsizei count, const GLchar* const* strings
 }
 
 void hookCompileShader(GLuint shader) {
+    vita::glthread::Direct direct;  // vglUseLowPrecision and the status queries call vitaGL directly
     if (kTraceShaders) {
         SDL_Log("vita: glCompileShader shader %u ...", shader);
         logMemory("before");
@@ -728,6 +735,7 @@ void hookCompileShader(GLuint shader) {
 }
 
 void hookLinkProgram(GLuint program) {
+    vita::glthread::Direct direct;  // glBindAttribLocation and the status query call vitaGL directly
     bool usesVertexId = false;
     for (GLuint shader : gProgramShaders[program]) {
         for (const auto& [location, name] : gShaders[shader].attributes) {
@@ -795,6 +803,7 @@ void initVitaGl() {
             reinterpret_cast<const char*>(glGetString(GL_RENDERER)),
             reinterpret_cast<const char*>(glGetString(GL_VERSION)),
             unsigned(vglMemFree(VGL_MEM_VRAM) >> 10), unsigned(vglMemFree(VGL_MEM_RAM) >> 10));
+    vita::glthread::start();  // from here on, vitaGL is called through the proxies or under a Direct
 }
 
 // --- Asynchronous log (see __wrap_SDL_SetLogOutputFunction) ----------------
@@ -923,6 +932,7 @@ void setSwapInterval(int vblanks) {
     int& current = gSwapInterval;
     if (vblanks == current) return;
     current = vblanks;
+    glthread::Direct direct;
     eglSwapInterval(nullptr, vblanks);  // vitaGL: sceDisplayWaitVblankStartMulti(vblanks) after each frame
     SDL_Log("vita: display paced at %d vblank(s) a frame (%s)", vblanks,
             vblanks == 2 ? "30 fps" : vblanks == 1 ? "up to 60 fps" : "no vertical sync");
@@ -1029,6 +1039,7 @@ bool __wrap_SDL_GL_SwapWindow(SDL_Window* /*window*/) {
         return v;
     }();
     if (std::find(shots.begin(), shots.end(), ++frame) != shots.end()) {
+        vita::glthread::Direct direct;
         GLint fb = 0;
         glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fb);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -1045,9 +1056,10 @@ bool __wrap_SDL_GL_SwapWindow(SDL_Window* /*window*/) {
         SDL_Log("vita: screenshot frame %u -> %s", frame, path);
     }
     const uint64_t swapStart = phaseNow();
-    vglSwapBuffers(GL_FALSE);
+    vita::glthread::swap();  // vglSwapBuffers (queued to the GL thread when it runs)
     if (gGpuTime) {
         const uint64_t t0 = phaseNow();
+        vita::glthread::Direct direct;
         glFinish();
         const uint64_t tail = phaseNow() - t0;
         gFrame.gpuTailNs += tail;
@@ -1123,6 +1135,8 @@ SDL_FunctionPointer __wrap_SDL_GL_GetProcAddress(const char* name) {
         SDL_Log("vita: GL %s is missing from vitaGL", name);
         return fn;
     }
+    // The GL thread's proxy (gl_thread.h); the hooks below call it as "real".
+    fn = vita::glthread::proxy(name, fn);
     struct Hook {
         const char* name;
         void** real;
@@ -1200,6 +1214,7 @@ SDL_FunctionPointer __wrap_SDL_GL_GetProcAddress(const char* name) {
 
 bool __wrap_SDL_GL_ExtensionSupported(const char* extension) {
     if (!gVglReady || !extension) return false;
+    vita::glthread::Direct direct;
     const char* all = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
     if (!all) return false;
     const size_t n = std::strlen(extension);
