@@ -1,0 +1,153 @@
+diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
+index 990ee0d8..d0bb2a33 100644
+--- a/gd-game-01/engine/src/app.cpp
++++ b/gd-game-01/engine/src/app.cpp
+@@ -18,6 +18,7 @@
+ // Modified by irxd on 2026-11-15: PS Vita: the title screen shows the port's version (drawVersion).
+ // Modified by irxd on 2026-11-16: PS Vita: the tutorial pause menus get the buttons (resume / restart / quit).
+ // Modified by irxd on 2026-11-19: PS Vita: a memory line in the log at the start and end of each song load.
++// Modified by irxd on 2026-11-19: PS Vita: Button Layout 3.
+ #include "app.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -264,7 +265,7 @@ const std::map<std::string, std::set<std::string>>& enhancedChoices() {
+         // PS Vita: a 60 Hz screen; Performance Mode's Notes Only runs at 60
+         // without the venue. Unlimited (benchmarks) has no menu entry.
+         {"max_fps", {"30", "60", "notes", "unlimited"}},
+-        {"button_layout", {"1", "2"}},  // PS Vita: Enhanced > Button Layout
++        {"button_layout", {"1", "2", "3"}},  // PS Vita: Enhanced > Button Layout
+ #else
+         {"max_fps", {"60", "120", "144", "240", "unlimited"}},
+ #endif
+diff --git a/gd-game-01/engine/src/input/input.cpp b/gd-game-01/engine/src/input/input.cpp
+index 8073724b..3c05e9b2 100644
+--- a/gd-game-01/engine/src/input/input.cpp
++++ b/gd-game-01/engine/src/input/input.cpp
+@@ -11,6 +11,7 @@
+ // Modified by irxd on 2026-11-15: PS Vita: the controller report names the port's version.
+ // Modified by irxd on 2026-11-16: PS Vita: Lefty Flip's fret order only in a song (no double select in the menus).
+ // Modified by irxd on 2026-11-19: PS Vita: the rear touchpad's left and right halves are bindable buttons (Rear Left / Right).
++// Modified by irxd on 2026-11-19: PS Vita: Button Layout 3 (L2 / Rear Left, L, R, R2 / Rear Right, Cross).
+ #include "input/input.h"
+ 
+ #include <algorithm>
+@@ -171,13 +172,13 @@ const char* Input::profileName(Profile p) {
+ }
+ 
+ #if defined(__vita__)
+-// PS Vita: Enhanced Settings > Button Layout (1 or 2), set by App
++// PS Vita: Enhanced Settings > Button Layout (1, 2 or 3), set by App
+ // (vita::setButtonLayout, declared in vita_settings.h).
+ namespace {
+ int gVitaLayout = 1;
+ }
+ namespace vita {
+-void setButtonLayout(int layout) { gVitaLayout = layout == 2 ? 2 : 1; }
++void setButtonLayout(int layout) { gVitaLayout = layout == 2 || layout == 3 ? layout : 1; }
+ }  // namespace vita
+ #endif
+ 
+@@ -233,6 +234,19 @@ Input::Bindings Input::defaults(Profile p) {
+         static const std::vector<Source> kVitaWhammy = {
+             axis(Kind::AxisAny, SDL_GAMEPAD_AXIS_RIGHTX), axis(Kind::AxisAny, SDL_GAMEPAD_AXIS_RIGHTY),
+             axis(Kind::AxisAny, SDL_GAMEPAD_AXIS_LEFTX), axis(Kind::AxisAny, SDL_GAMEPAD_AXIS_LEFTY)};
++        if (gVitaLayout == 3) {
++            // Layout 3 (issue #2), the PS2 joypad's frets: L2 L1 R1 R2 Cross,
++            // L2 / R2 being the rear touchpad's left / right halves (patch
++            // 0047) or a PS TV controller's triggers; strum on D-pad Up / Down.
++            set(C::Green, {axis(Kind::AxisPos, SDL_GAMEPAD_AXIS_LEFT_TRIGGER), btn(SDL_GAMEPAD_BUTTON_LEFT_PADDLE1)});
++            set(C::Red, {btn(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER)});
++            set(C::Yellow, {btn(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER)});
++            set(C::Blue, {axis(Kind::AxisPos, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER), btn(SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1)});
++            set(C::Orange, {btn(SDL_GAMEPAD_BUTTON_SOUTH)});
++            set(C::Whammy, kVitaWhammy);
++            set(C::Gyro, {btn(SDL_GAMEPAD_BUTTON_BACK)});
++            break;
++        }
+         if (gVitaLayout == 2) {
+             // Layout 2 (Enhanced > Button Layout): D-pad Left, D-pad Up,
+             // Triangle, Circle, Cross; strum (optional: a gamepad's frets strum) on L / R.
+@@ -507,11 +521,12 @@ const Input::Bindings& Input::bindingsFor(const std::string& guid, Profile p) co
+     if (auto it = overrides_.find(guid); it != overrides_.end()) return it->second;
+ #if defined(__vita__)
+     if (p == Profile::Joypad) {  // the chosen Button Layout
+-        static const std::array<Bindings, 2> kLayouts = [] {
++        static const std::array<Bindings, 3> kLayouts = [] {
+             const int keep = gVitaLayout;
+-            std::array<Bindings, 2> l;
++            std::array<Bindings, 3> l;
+             gVitaLayout = 1, l[0] = defaults(Profile::Joypad);
+             gVitaLayout = 2, l[1] = defaults(Profile::Joypad);
++            gVitaLayout = 3, l[2] = defaults(Profile::Joypad);
+             gVitaLayout = keep;
+             return l;
+         }();
+diff --git a/gd-game-01/engine/src/ui/select_panels.cpp b/gd-game-01/engine/src/ui/select_panels.cpp
+index e7db87d0..4d3102a0 100644
+--- a/gd-game-01/engine/src/ui/select_panels.cpp
++++ b/gd-game-01/engine/src/ui/select_panels.cpp
+@@ -9,6 +9,7 @@
+ // Modified by irxd on 2026-11-15: PS Vita: Shake for Whammy's help names both sticks.
+ // Modified by irxd on 2026-11-15: PS Vita: Rear Touch Strum's help reworded (hold the fret, tap to strum).
+ // Modified by irxd on 2026-11-19: PS Vita: Rear Touch Strum's help names the bindable rear halves.
++// Modified by irxd on 2026-11-19: PS Vita: Button Layout 3 (PS2: L2 L R R2 Cross) in the choice and its drawn help.
+ #include "ui/select_panels.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -1094,7 +1095,7 @@ private:
+ #elif defined(__vita__)
+             {Kind::Choice, "button_layout", "Button Layout", true,
+              "Strum is optional. Buttons changed in GAMEPADS override this layout.",
+-             {{"1", "Layout 1"}, {"2", "Layout 2"}}},
++             {{"1", "Layout 1"}, {"2", "Layout 2"}, {"3", "Layout 3 (PS2)"}}},
+             {Kind::Check, "shake_whammy", "Shake for Whammy", true,
+              "Shake the Vita during a song to use the whammy bar: keep shaking to hold it, stop to let go. Whammy bends "
+              "the note and fills Star Power faster on a Star Power note. Both sticks keep working."},
+@@ -1523,8 +1524,8 @@ private:
+ #if defined(__vita__)
+     // PS Vita: Button Layout's help draws both layouts, each fret's colour
+     // then its button as a drawn icon (the menu fonts have no button glyphs).
+-    static constexpr float kVitaLayoutsH = 4 * 36 + 16;
+-    enum class VitaButton { DpadLeft, DpadUp, DpadDown, L, R, Triangle, Circle, Cross };
++    static constexpr float kVitaLayoutsH = 6 * 36 + 24 + 26;  // three layouts, Layout 3's note
++    enum class VitaButton { DpadLeft, DpadUp, DpadDown, L, R, L2, R2, Triangle, Circle, Cross };
+     void disc(float cx, float cy, float r, const std::array<float, 4>& c) {
+         constexpr int n = 16;
+         for (int k = 0; k < n; ++k) {
+@@ -1534,12 +1535,13 @@ private:
+     }
+     void vitaButtonIcon(VitaButton b, float cx, float cy, const std::array<float, 4>& c) {
+         const float s = 14;  // half the icon's size
+-        const bool shoulder = b == VitaButton::L || b == VitaButton::R;
++        const bool shoulder = b == VitaButton::L || b == VitaButton::R || b == VitaButton::L2 || b == VitaButton::R2;
+         const bool dpad = b == VitaButton::DpadLeft || b == VitaButton::DpadUp || b == VitaButton::DpadDown;
+         if (shoulder) {  // a shoulder tab with its letter
+             quad(cx - s - 4, cy - s + 3, cx + s + 4, cy + s - 3, {1, 1, 1, 0.14f});
+             frame(cx - s - 4, cy - s + 3, cx + s + 4, cy + s - 3, 1.5f, c);
+-            text("impactor.font", b == VitaButton::L ? "L" : "R", cx, cy + 1, 20, c, 0x22);
++            const char* name = b == VitaButton::L ? "L" : b == VitaButton::R ? "R" : b == VitaButton::L2 ? "L2" : "R2";
++            text("impactor.font", name, cx, cy + 1, name[1] ? 17 : 20, c, 0x22);
+             return;
+         }
+         if (dpad) {  // a D-pad cross, the pressed arm lit
+@@ -1577,9 +1579,10 @@ private:
+         static const std::array<float, 4> kFret[5] = {
+             {0.15f, 0.8f, 0.25f, 1}, {0.9f, 0.2f, 0.2f, 1}, {0.95f, 0.85f, 0.15f, 1}, {0.2f, 0.45f, 0.95f, 1}, {1, 0.55f, 0.1f, 1}};
+         struct Layout { const char* value; const char* name; B frets[5]; std::vector<B> strum; };
+-        static const Layout kLayouts[2] = {
++        static const Layout kLayouts[3] = {
+             {"1", "Layout 1", {B::DpadLeft, B::L, B::R, B::Circle, B::Cross}, {B::DpadUp, B::DpadDown}},
+             {"2", "Layout 2", {B::DpadLeft, B::DpadUp, B::Triangle, B::Circle, B::Cross}, {B::L, B::R}},
++            {"3", "Layout 3 (PS2)", {B::L2, B::L, B::R, B::R2, B::Cross}, {B::DpadUp, B::DpadDown}},
+         };
+         const std::string now = host_.enhancedValue("button_layout");
+         for (const Layout& l : kLayouts) {
+@@ -1603,6 +1606,8 @@ private:
+             }
+             y += 2 * 36 + 8;
+         }
++        // Layout 3's L2 / R2 (patch 0047 and the PS TV's triggers).
++        text("impactor.font", "L2 / R2: rear touchpad left / right half, or PS TV L2 / R2", x0, y + 8, 16, kDim, 0x21);
+     }
+ #endif
+     void warning(float x, float cy) {  // a yellow warning sign: not built yet
