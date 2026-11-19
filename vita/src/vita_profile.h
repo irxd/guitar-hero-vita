@@ -28,4 +28,10 @@ void profilePop();
 // per frame).
 void countCulledDraw();
 
+// A memory line in ghvita.log at a song load ("song <stage>: <song>"), with
+// vitaGL's free VRAM and RAM. Those two queries wait for the GL thread and
+// walk vitaGL's heaps (up to ~30 ms), so only for loading screens, never per
+// frame. Lines from load to load show a leak across songs (issue #1).
+void reportSongLoadMemory(const char* stage, const char* song);
+
 }  // namespace vita

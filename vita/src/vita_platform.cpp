@@ -967,6 +967,12 @@ void setSwapInterval(int vblanks) {
 
 void countCulledDraw() { ++gFrame.culled; }
 
+void reportSongLoadMemory(const char* stage, const char* song) {
+    char when[96];
+    std::snprintf(when, sizeof when, "song %s: %s", stage, song ? song : "?");
+    ::reportMemory(when, true);
+}
+
 void profilePhase(const char* name) {
     if (kFrameStats && gPhaseLevel >= 1) switchPhase(name, phaseNow());
 }
