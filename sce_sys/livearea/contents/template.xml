@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-
-<livearea style="a1" format-ver="01.00" content-rev="1">
+<!-- No gate, so no system Start button: the lettering (startup.png) is a live
+     item in frame1 whose target starts the game (psla:eboot) when tapped. -->
+<livearea style="ad0" format-ver="01.00" content-rev="2">
   <livearea-background>
     <image>bg.png</image>
   </livearea-background>
-
-  <gate>
-    <startup-image>startup.png</startup-image>
-  </gate>
+  <frame id="frame1" multi="o" autoflip="1">
+    <liveitem>
+      <target>psla:eboot</target>
+      <image y="128" x="0" width="632" height="245">startup.png</image>
+    </liveitem>
+  </frame>
 </livearea>

@@ -4,9 +4,11 @@
 # Draws the LiveArea background (sce_sys/livearea/contents/bg.png, 840x500) and the
 # bubble preview (sce_sys/pic0.png, 960x544): a dark purple brick wall with worn
 # texture, a soft light in the middle and darker edges. Fully procedural, so the
-# output is our own art. Also the LiveArea gate (startup.png, 280x158): the
-# user's GH Vita lettering (tools/livearea/gh-vita-logo.png, on black) with the
-# black around it made transparent, so only the lettering shows over the wall.
+# output is our own art. Also the LiveArea's tap-to-start image (startup.png,
+# 632x245, frame1 of template.xml, which has no gate and so no system Start
+# button): the user's GH Vita lettering (tools/livearea/gh-vita-logo.png, on
+# black) with the black around it made transparent, so only the lettering shows
+# over the wall.
 #
 # Needs Pillow and numpy. Usage: python3 tools/make-livearea-art.py [repo root]
 import os
@@ -134,8 +136,8 @@ def add_logo(img, icon_path, height, margin):
     return out
 
 
-def make_startup(src_path, size=(280, 158), height=148):
-    """The gate: the lettering of src_path (white with black strokes, on black)
+def make_startup(src_path, size=(632, 245), height=200):
+    """The tap-to-start image: the lettering of src_path (white with black strokes, on black)
     without the black around it. The black connected to the image's border is
     the background; its rim gets alpha from brightness (anti-aliased edge), the
     black strokes inside the letters stay. A soft shadow keeps it readable on
@@ -161,9 +163,10 @@ def make_startup(src_path, size=(280, 158), height=148):
     return out
 
 
-def save_indexed_alpha(img, path):
-    # An 8-bit palette PNG whose entries carry alpha (tRNS), like the other LiveArea images.
-    img.quantize(colors=256, method=Image.Quantize.FASTOCTREE, dither=Image.Dither.NONE).save(path, optimize=True)
+def save_rgba(img, path):
+    # A 32-bit RGBA PNG: frame images keep full alpha (the layout follows a
+    # homebrew VPK's working template, 2026-11-19).
+    img.save(path, optimize=True)
     print("wrote", path)
 
 
@@ -172,8 +175,8 @@ def main():
     save_indexed(render(840, 500, 0.6), os.path.join(root, "sce_sys/livearea/contents/bg.png"))
     pic = add_logo(render(960, 544, 1.0), os.path.join(root, "sce_sys/icon0.png"), 150, 28)
     save_indexed(pic, os.path.join(root, "sce_sys/pic0.png"))
-    gate = make_startup(os.path.join(root, "tools/livearea/gh-vita-logo.png"))
-    save_indexed_alpha(gate, os.path.join(root, "sce_sys/livearea/contents/startup.png"))
+    start = make_startup(os.path.join(root, "tools/livearea/gh-vita-logo.png"))
+    save_rgba(start, os.path.join(root, "sce_sys/livearea/contents/startup.png"))
 
 
 if __name__ == "__main__":
