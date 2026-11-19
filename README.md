@@ -32,33 +32,35 @@ Steps:
    [Releases](https://github.com/irxd/guitar-hero-vita/releases) page.
 2. Copy it to the Vita (USB or FTP in VitaShell) and install it with VitaShell.
 3. Copy your `.iso` to `ux0:data/ghvita/` (create the folder if needed).
-4. Start **GH Vita** from the LiveArea.
+4. Start **GH Vita** from the LiveArea (tap the lettering).
 
 Settings, saves and the log (`ghvita.log`, attach it to bug reports) are also stored in
 `ux0:data/ghvita/`. To update, install the new VPK over the old one: your data is kept.
 
 ## Status
 
-**v0.1.1 (alpha)**, a bug-fix build after the first public release (v0.1.0). Tested on a retail PS Vita. Install steps, requirements and known issues: [docs/releases/v0.1.1.md](docs/releases/v0.1.1.md).
+**v0.2.0 (alpha)**: 60 FPS by default, a PS2-style button layout using the rear touchpad or a controller's L2 / R2, and a new LiveArea. Tested on a retail PS Vita. Install steps, requirements and known issues: [docs/releases/v0.2.0.md](docs/releases/v0.2.0.md).
 
 Working on the Vita:
 
 - Boot logos, main menu, Quick Play song list with previews, Enhanced Settings
 - Songs load and play with the full stage: venue, band, crowd, highway, HUD, pause menu, retry
 - 60 FPS by default (crowd off), and a steady 30 FPS with the full crowd (see [Performance](#performance))
-- Play on the Vita's buttons, with two layouts in Enhanced Settings → Button Layout:
+- Play on the Vita's buttons, with three layouts in Enhanced Settings → Button Layout:
 
   | | Green | Red | Yellow | Blue | Orange | Strum |
   |---|---|---|---|---|---|---|
   | Layout 1 (default) | D-pad ← | L | R | ○ | ✕ | D-pad ↑/↓ (optional) |
   | Layout 2 | D-pad ← | D-pad ↑ | △ | ○ | ✕ | L / R (optional) |
+  | Layout 3 (PS2) | L2 / rear left | L | R | R2 / rear right | ✕ | D-pad ↑/↓ (optional) |
 
   A fret press plays the note on its own, so strumming is optional; a strum while holding
   frets plays them again (for fast runs of one note), and never counts as a miss. Single buttons can
-  be rebound in the Gamepads screen, which overrides the layout.
+  be rebound in the Gamepads screen, which overrides the layout. The rear touchpad's left and
+  right halves can be bound there too (Rear Left / Rear Right; they only work in a song).
 - Whammy on either analog stick; Star Power on Select
 - An external controller (a DualShock or DualSense through ds34vita) plays alongside the
-  Vita's own buttons: both control player 1
+  Vita's own buttons: both control player 1. Its L2 / R2 work (Layout 3 uses them)
 - Optional: tap the rear touchpad to strum (Enhanced Settings → Rear Touch Strum) and shake
   the Vita for whammy (Shake for Whammy), both off by default
 - LiveArea art and bubble icon ("GH Vita")
