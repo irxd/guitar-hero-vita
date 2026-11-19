@@ -1,0 +1,30 @@
+diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
+index d0bb2a33..5ffab3d1 100644
+--- a/gd-game-01/engine/src/app.cpp
++++ b/gd-game-01/engine/src/app.cpp
+@@ -19,6 +19,7 @@
+ // Modified by irxd on 2026-11-16: PS Vita: the tutorial pause menus get the buttons (resume / restart / quit).
+ // Modified by irxd on 2026-11-19: PS Vita: a memory line in the log at the start and end of each song load.
+ // Modified by irxd on 2026-11-19: PS Vita: Button Layout 3.
++// Modified by irxd on 2026-11-19: PS Vita: defaults Max FPS 60 and Crowd off.
+ #include "app.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -184,11 +185,12 @@ std::map<std::string, Json> profileValues(bool deck) {
+     // depth of field (its blur targets are the next biggest). Touch stays
+     // off: the hands rest on the screen edges, and the buttons cover it all.
+     (void)deck;
+-    // Max FPS 30: busy song shots take 20-30 ms a frame (hardware,
+-    // 2026-11-11), so 30 is steady where 60 would swing between 35 and 48.
+-    // Crowd on: at most 8 3D members (the widest shots drew ~23, 9 ms a frame).
+-    for (auto& [k, v] : std::map<std::string, Json>{{"screen_mode", t("fullscreen")}, {"max_fps", t("30")}, {"internal_res", t("448")},
+-                                                    {"bokeh", t("none")}, {"crowd", b(true)}, {"shake_whammy", b(false)},
++    // Max FPS 60 with the crowd off: 59.9 FPS in both gate songs, no frame
++    // over 22 ms mid-song (hardware, 2026-11-17; the GL thread and the hitch
++    // fixes). With the crowd on, 60 FPS still drops in the widest shots
++    // (56 on average), so it is off by default; 30 FPS with it on is steady.
++    for (auto& [k, v] : std::map<std::string, Json>{{"screen_mode", t("fullscreen")}, {"max_fps", t("60")}, {"internal_res", t("448")},
++                                                    {"bokeh", t("none")}, {"crowd", b(false)}, {"shake_whammy", b(false)},
+                                                     {"button_layout", t("1")}, {"rear_strum", b(false)}})
+         d[k] = v;
+ #else

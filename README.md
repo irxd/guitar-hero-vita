@@ -45,7 +45,7 @@ Working on the Vita:
 
 - Boot logos, main menu, Quick Play song list with previews, Enhanced Settings
 - Songs load and play with the full stage: venue, band, crowd, highway, HUD, pause menu, retry
-- Steady 30 FPS with the full stage, and 60 FPS options (see [Performance](#performance))
+- 60 FPS by default (crowd off), and a steady 30 FPS with the full crowd (see [Performance](#performance))
 - Play on the Vita's buttons, with two layouts in Enhanced Settings → Button Layout:
 
   | | Green | Red | Yellow | Blue | Orange | Strum |
@@ -84,22 +84,22 @@ Full record of every hardware run: [docs/port-plan.md](docs/port-plan.md).
 
 ## Performance
 
-Measured on a retail PS Vita (2026-11-11), with the song played by autoplay and the
-camera shots seeded so every run sees the same shots. Test song: *I Love Rock 'n' Roll*,
+Measured on a retail PS Vita (30 FPS: 2026-11-11; 60 FPS: 2026-11-17), with the song
+played by autoplay and the camera shots seeded so every run sees the same shots. Test song: *I Love Rock 'n' Roll*,
 one of the busiest venues (a large crowd on screen).
 
 Options → Enhanced Settings → Performance & Graphics:
 
 | Performance Mode | Crowd | Result |
 |---|---|---|
-| 30 FPS (default) | On (default) | Steady 30 FPS. After loading, at most 1 late frame in any 5 seconds |
+| 60 FPS (default) | Off (default) | 59.9 FPS on average, every 5 seconds at least 59.4 |
+| 60 FPS | On | 56 FPS on average; the widest crowd shots drop to about 47 |
+| 30 FPS | On | Steady 30 FPS. After loading, at most 1 late frame in any 5 seconds |
 | 30 FPS | Off | Steady 30 FPS, more headroom (17–19 ms of the 33 ms a frame) |
-| 60 FPS | On | 33–57 FPS, 46 on average; the widest crowd shots drop to the low 30s |
-| 60 FPS | Off | 47–58 FPS |
 | Notes Only | (not shown) | Locked 60 FPS; just the highway on black, ~3 ms a frame |
 
 - **30 FPS** shows every frame for exactly two screen refreshes, so motion stays even.
-  60 FPS is smoother when it holds, but busy stages still run below it.
+  60 FPS is smoother; with the crowd on, the busiest shots still run below it.
 - **Crowd On** draws up to 8 people nearest the camera in 3D (4 at 60 FPS) and the rest
   as flat cut-outs; in the widest shots this halves the crowd's cost (8.4 → 4.5 ms a frame)
   against drawing them all in 3D, and the crowd looks just as full. At 60 FPS the cut-outs
