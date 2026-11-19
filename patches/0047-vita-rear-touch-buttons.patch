@@ -1,0 +1,146 @@
+diff --git a/gd-game-01/engine/src/input/input.cpp b/gd-game-01/engine/src/input/input.cpp
+index 6474cae7..8073724b 100644
+--- a/gd-game-01/engine/src/input/input.cpp
++++ b/gd-game-01/engine/src/input/input.cpp
+@@ -10,6 +10,7 @@
+ // Modified by irxd on 2026-11-15: PS Vita: whammy on the left stick too.
+ // Modified by irxd on 2026-11-15: PS Vita: the controller report names the port's version.
+ // Modified by irxd on 2026-11-16: PS Vita: Lefty Flip's fret order only in a song (no double select in the menus).
++// Modified by irxd on 2026-11-19: PS Vita: the rear touchpad's left and right halves are bindable buttons (Rear Left / Right).
+ #include "input/input.h"
+ 
+ #include <algorithm>
+@@ -1082,6 +1083,10 @@ std::string Input::sourceName(const std::string& id, const Source& s) const {
+                                                "LB", "RB", "D-Pad Up", "D-Pad Down", "D-Pad Left", "D-Pad Right", "Misc",
+                                                "Paddle 1", "Paddle 2", "Paddle 3", "Paddle 4", "Touchpad", "Misc 2",
+                                                "Misc 3", "Misc 4", "Misc 5", "Misc 6"};
++#if defined(__vita__)
++        if (s.index == SDL_GAMEPAD_BUTTON_LEFT_PADDLE1) return "Rear Left";  // the rear touchpad's halves
++        if (s.index == SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1) return "Rear Right";
++#endif
+         // PlayStation-style pads show their face-button symbols' names.
+         if (const Pad* p = padById(id); p && s.index <= SDL_GAMEPAD_BUTTON_NORTH) {
+             SDL_GamepadButtonLabel l = SDL_GetGamepadButtonLabel(p->pad, SDL_GamepadButton(s.index));
+@@ -1400,13 +1405,69 @@ void Input::touchMotion(const SDL_TouchFingerEvent& f) {
+ // like alternate picking. A finger that stays down does nothing more.
+ // In joypad mode (the Vita pad's default) a strum plays the held frets again
+ // when that hits a note (Player::strum, patch 0039).
++//
++// Each half of the pad (left / right of the middle, edges excluded) is also a
++// button of the Vita's own pad, Rear Left / Rear Right, which the Gamepads
++// screen binds like any other (unbound by default). They press only in a song
++// and while the Gamepads screen waits for an input on that pad, so a hand on
++// the back never works the menus. A half held by several fingers is released
++// when the last one lifts. With Rear Touch Strum on, a half bound to a control
++// does not also strum.
+ void Input::rearTouchEvent(const SDL_TouchFingerEvent& f, bool down, std::vector<InputEvent>& out) {
+-    if (!down || !rearStrum_ || !inGame()) return;
++    const SDL_JoystickID pad = rearPad();
++    if (!down) {
++        auto it = rearFingers_.find(f.fingerID);
++        if (it == rearFingers_.end()) return;
++        const int button = it->second;
++        rearFingers_.erase(it);
++        int& held = rearHeld_[button == SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1 ? 1 : 0];
++        if (held > 0 && --held == 0) rearButton(pad, button, false, f.timestamp, out);
++        return;
++    }
+     if (f.x < kRearEdge || f.x > 1 - kRearEdge) return;
+-    if (!rearLogged_) rearLogged_ = true, SDL_Log("input: rear touch strum (first in this run)");
+-    const int player = lanes_[0].active ? 0 : 1;
+-    emit(out, Action::Strum, true, f.timestamp, ControllerMode::Joypad, player);
+-    emit(out, Action::Strum, false, f.timestamp, ControllerMode::Joypad, player);
++    const bool right = f.x >= 0.5f;
++    const int button = right ? SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1 : SDL_GAMEPAD_BUTTON_LEFT_PADDLE1;
++    const bool capture = pad && capturing_ && captureId_ == "pad:" + std::to_string(pad);
++    const bool bound = pad && rearBound(pad, button);
++    if (rearStrum_ && inGame() && !bound && !capture) {
++        if (!rearLogged_) rearLogged_ = true, SDL_Log("input: rear touch strum (first in this run)");
++        const int player = lanes_[0].active ? 0 : 1;
++        emit(out, Action::Strum, true, f.timestamp, ControllerMode::Joypad, player);
++        emit(out, Action::Strum, false, f.timestamp, ControllerMode::Joypad, player);
++    }
++    if (!pad || !(inGame() || capture) || rearFingers_.count(f.fingerID)) return;
++    rearFingers_[f.fingerID] = button;
++    if (rearHeld_[right ? 1 : 0]++ == 0) rearButton(pad, button, true, f.timestamp, out);
++}
++
++// The Vita's own pad: SDL's first joystick (id 1; on a PS TV, the first
++// paired controller, which has no rear touchpad anyway). 0: no pad.
++SDL_JoystickID Input::rearPad() const {
++    SDL_JoystickID best = 0;
++    for (const auto& [id, p] : pads_)
++        if (!best || id < best) best = id;
++    return best;
++}
++
++bool Input::rearBound(SDL_JoystickID pad, int button) const {
++    for (const auto& list : bindings("pad:" + std::to_string(pad)))
++        for (const Source& s : list)
++            if (s.kind == Kind::Button && s.index == button) return true;
++    return false;
++}
++
++// The press goes the way of a real button of that pad (Input::handle):
++// capture on the Gamepads screen, then its bindings.
++void Input::rearButton(SDL_JoystickID pad, int button, bool down, uint64_t ts, std::vector<InputEvent>& out) {
++    if (!pads_.count(pad)) return;
++    SDL_Event e;
++    SDL_zero(e);
++    e.type = down ? SDL_EVENT_GAMEPAD_BUTTON_DOWN : SDL_EVENT_GAMEPAD_BUTTON_UP;
++    e.gbutton.timestamp = ts;
++    e.gbutton.which = pad;
++    e.gbutton.button = Uint8(button);
++    e.gbutton.down = down;
++    handle(e, out);
+ }
+ #endif
+ 
+diff --git a/gd-game-01/engine/src/input/input.h b/gd-game-01/engine/src/input/input.h
+index f015545e..3a61b185 100644
+--- a/gd-game-01/engine/src/input/input.h
++++ b/gd-game-01/engine/src/input/input.h
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-15: PS Vita: Rear Touch Strum (the rear touchpad kept apart from the screen).
++// Modified by irxd on 2026-11-19: PS Vita: the rear touchpad's left and right halves are bindable buttons.
+ #pragma once
+ 
+ #include <SDL3/SDL.h>
+@@ -337,6 +338,13 @@ private:
+ #if defined(__vita__)
+     bool rearStrum_ = false, rearLogged_ = false;
+     void rearTouchEvent(const SDL_TouchFingerEvent& f, bool down, std::vector<InputEvent>& out);
++    // The rear touchpad's halves as buttons of the Vita's own pad (Rear Left /
++    // Rear Right, SDL's left / right paddle 1), bindable on the Gamepads screen.
++    std::unordered_map<SDL_FingerID, int> rearFingers_;  // finger -> the rear button it holds
++    std::array<int, 2> rearHeld_{};                      // fingers held on the left / right half
++    SDL_JoystickID rearPad() const;
++    bool rearBound(SDL_JoystickID pad, int button) const;
++    void rearButton(SDL_JoystickID pad, int button, bool down, uint64_t ts, std::vector<InputEvent>& out);
+ #endif
+     float shakeValue_ = 0, shakeGrav_[3] = {0, 0, 0};
+     uint64_t shakeLastSampleNs_ = 0, shakeActiveUntilNs_ = 0, shakeLastStrongNs_ = 0;
+diff --git a/gd-game-01/engine/src/ui/select_panels.cpp b/gd-game-01/engine/src/ui/select_panels.cpp
+index 38824952..e7db87d0 100644
+--- a/gd-game-01/engine/src/ui/select_panels.cpp
++++ b/gd-game-01/engine/src/ui/select_panels.cpp
+@@ -8,6 +8,7 @@
+ // Modified by irxd on 2026-11-15: PS Vita: Rear Touch Strum setting.
+ // Modified by irxd on 2026-11-15: PS Vita: Shake for Whammy's help names both sticks.
+ // Modified by irxd on 2026-11-15: PS Vita: Rear Touch Strum's help reworded (hold the fret, tap to strum).
++// Modified by irxd on 2026-11-19: PS Vita: Rear Touch Strum's help names the bindable rear halves.
+ #include "ui/select_panels.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -1100,7 +1101,8 @@ private:
+             {Kind::Check, "rear_strum", "Rear Touch Strum", true,
+              "In a song, a tap on the rear touchpad strums: hold the fret and drum two fingers on the back for fast "
+              "runs of one note or chord. A finger resting on the pad does nothing, and neither do touches at its left "
+-             "and right edges."},
++             "and right edges. A half of the pad bound on the Gamepads screen (Rear Left / Rear Right) plays its "
++             "control instead."},
+ #endif
+             {Kind::Check, "touch", "Enable Touch Controls", true,
+              "Play on a touch screen; also shows the on-screen buttons. In the menus a tap is a click. In a song, "

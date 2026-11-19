@@ -1035,7 +1035,43 @@ int __wrap_main(int argc, char** argv) {
 
 SDL_Window* __real_SDL_CreateWindow(const char* title, int w, int h, SDL_WindowFlags flags);
 
+// L2 / R2 of a DualShock 3 / 4 on a PS TV (issue #2). SDL's Vita joystick
+// driver reads them twice: as buttons 12 / 13 (SCE_CTRL_L2 / R2) and as the
+// trigger axes 4 / 5 (SceCtrlData lt / rt). Its gamepad mapping ("PSVita
+// Controller", SDL 3.4.16) uses only the axes, which sceCtrlPeekBufferPositive2
+// may leave at 0 [verify on a PS TV]: the reporter could not bind L2 / R2.
+// The buttons are added to the triggers, so either one presses them (SDL
+// keeps both bindings; a button sets the trigger to 0 or full). The Vita
+// handheld has neither, and nothing changes there. Called once SDL_Init has
+// opened the gamepad subsystem (the game creates its window after that); all
+// Vita pads share one GUID, so the mapping covers every port.
+static void addTriggerButtons() {
+    int count = 0;
+    SDL_JoystickID* ids = SDL_GetJoysticks(&count);
+    if (!ids || count == 0) {
+        SDL_free(ids);
+        SDL_Log("vita: no joystick yet; L2 / R2 buttons not added to the triggers");
+        return;
+    }
+    const SDL_GUID guid = SDL_GetJoystickGUIDForID(ids[0]);
+    SDL_free(ids);
+    char* mapping = SDL_GetGamepadMappingForGUID(guid);
+    if (!mapping) {
+        SDL_Log("vita: no gamepad mapping for the Vita pad (%s); L2 / R2 buttons not added", SDL_GetError());
+        return;
+    }
+    std::string m = mapping;
+    SDL_free(mapping);
+    if (m.find("lefttrigger:b12") == std::string::npos) {
+        if (!m.empty() && m.back() != ',') m += ',';
+        m += "lefttrigger:b12,righttrigger:b13,";
+        if (SDL_AddGamepadMapping(m.c_str()) < 0) SDL_Log("vita: L2 / R2 mapping refused: %s", SDL_GetError());
+        else SDL_Log("vita: L2 / R2 buttons added to the triggers (DualShock on a PS TV)");
+    }
+}
+
 SDL_Window* __wrap_SDL_CreateWindow(const char* title, int w, int h, SDL_WindowFlags flags) {
+    addTriggerButtons();
     const SDL_WindowFlags dropped = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     SDL_Log("vita: SDL_CreateWindow(%dx%d, flags 0x%llx) -> %dx%d, flags 0x%llx", w, h,
             static_cast<unsigned long long>(flags), kScreenWidth, kScreenHeight,
