@@ -7,8 +7,9 @@
 #   - vitacompanion 1.08: vitacompanion_kernel.skprx under *KERNEL and
 #     vitacompanion.suprx under *main in ur0:tai/config.txt, then reboot
 #     (do not load it together with vita-agent-use, which lists it as incompatible);
-#   - GH Vita installed once from build-out/ghvita.vpk (this script only replaces
-#     eboot.bin; reinstall the VPK when sce_sys/param.sfo or LiveArea changes);
+#   - GH Vita installed once from build-out/ghvita.vpk, or with --install (the
+#     default deploy only replaces eboot.bin; use --install when sce_sys/param.sfo
+#     or the LiveArea changes);
 #   - the Vita on the same network as this PC, not asleep.
 #
 # Usage (from PowerShell):
@@ -17,6 +18,11 @@
 # Options:
 #   --build          run tools/build-vita.sh first
 #   --no-deploy      keep the eboot.bin on the Vita
+#   --install        install the whole VPK (OUT/ghvita.vpk) instead of replacing
+#                    eboot.bin: unpacked, uploaded to ux0:data/ghvt_promote and
+#                    installed by vitacompanion's promote (what VitaShell does
+#                    with a VPK). Needed for LiveArea / param.sfo changes; the
+#                    saves and settings in ux0:data/ghvita stay
 #   --no-launch      only collect logs (from a run you started by hand)
 #   --wait SECS      seconds to let the game run before collecting (default 60)
 #   --input CMDS     vitacompanion input commands sent after --input-delay, e.g.
@@ -40,11 +46,12 @@ IP="${VITA_IP:-}"
 FTP_PORT="${VITA_FTP_PORT:-1337}"
 CMD_PORT="${VITA_CMD_PORT:-1338}"
 
-build=0 deploy=1 launch=1 wait_s=60 input="" input_delay=15 keep=0 one_cmd="" game_args=""
+build=0 deploy=1 install=0 launch=1 wait_s=60 input="" input_delay=15 keep=0 one_cmd="" game_args=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --build) build=1 ;;
         --no-deploy) deploy=0 ;;
+        --install) install=1 ;;
         --no-launch) launch=0; deploy=0 ;;
         --wait) wait_s="$2"; shift ;;
         --input) input="$2"; shift ;;
@@ -52,7 +59,7 @@ while [ $# -gt 0 ]; do
         --keep-running) keep=1 ;;
         --cmd) one_cmd="$2"; shift ;;
         --args) game_args="$2"; shift ;;
-        -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -61,14 +68,40 @@ done
 
 FTP="ftp://$IP:$FTP_PORT"
 
-# One command line to vitacompanion; prints its reply (if any within 3 s).
+# One command line to vitacompanion; prints its reply (if any within $2
+# seconds, default 3).
 vcmd() {
     local reply
     exec 3<>"/dev/tcp/$IP/$CMD_PORT" || { echo "no command server at $IP:$CMD_PORT (vitacompanion loaded?)" >&2; return 1; }
     printf '%s\n' "$1" >&3
-    reply="$(timeout 3 cat <&3 || true)"
+    reply="$(timeout "${2:-3}" cat <&3 | tr -d '\0' || true)"
     exec 3>&- 3<&-
     [ -z "$reply" ] || printf '  vita> %s\n' "$reply"
+}
+
+# The whole VPK: unpacked, uploaded and promoted (installed in place). The
+# FTP server needs each folder made first (curl's --ftp-create-dirs does not
+# work with --ftp-method nocwd). promote answers "Promoted." when done.
+PROMOTE_DIR="ghvt_promote"
+install_vpk() {
+    local vpk="$OUT/ghvita.vpk" tmp n=0 reply
+    [ -f "$vpk" ] || { echo "no $vpk: build first (--build)" >&2; return 1; }
+    tmp="$(mktemp -d)"
+    unzip -q "$vpk" -d "$tmp"
+    echo "== install ghvita.vpk ($(stat -c %s "$vpk") bytes)"
+    curl -s -Q "MKD ux0:/data/$PROMOTE_DIR" "$FTP/" -o /dev/null || true
+    while IFS= read -r d; do
+        curl -s -Q "MKD ux0:/data/$PROMOTE_DIR/${d#./}" "$FTP/" -o /dev/null || true
+    done < <(cd "$tmp" && find . -mindepth 1 -type d | sort)
+    while IFS= read -r f; do
+        curl -sS --ftp-method nocwd -T "$tmp/${f#./}" "$FTP/ux0:/data/$PROMOTE_DIR/${f#./}"
+        n=$((n + 1))
+    done < <(cd "$tmp" && find . -type f)
+    rm -rf "$tmp"
+    echo "   uploaded $n files"
+    reply="$(vcmd "promote ux0:data/$PROMOTE_DIR" 120)"
+    printf '%s\n' "$reply"
+    case "$reply" in *Promoted*) ;; *) echo "install failed (no 'Promoted.' from the Vita)" >&2; return 1 ;; esac
 }
 
 if [ -n "$one_cmd" ]; then vcmd "$one_cmd"; exit 0; fi
@@ -83,13 +116,17 @@ mkdir -p "$RUN"
 list_dumps() { curl -s --ftp-method nocwd --list-only "$FTP/ux0:/data/" | tr -d '\r' | grep '^psp2core-.*\.psp2dmp$' || true; }
 before="$(list_dumps)"
 
-if [ "$launch" = 1 ]; then
+if [ "$launch" = 1 ] || [ "$install" = 1 ]; then
     echo "== quit $TITLE_ID"
     vcmd "quit $TITLE_ID" || exit 1
     sleep 2
 fi
 
-if [ "$deploy" = 1 ]; then
+if [ "$install" = 1 ]; then
+    install_vpk || exit 1
+    cp "$OUT/eboot.bin" "$RUN/eboot.bin" 2>/dev/null || true   # parse-core needs the matching build
+    [ -f "$OUT/ghvita" ] && cp "$OUT/ghvita" "$RUN/ghvita.elf" || true   # unstripped ELF
+elif [ "$deploy" = 1 ]; then
     [ -f "$OUT/eboot.bin" ] || { echo "no $OUT/eboot.bin: build first (--build)" >&2; exit 1; }
     echo "== upload eboot.bin ($(stat -c %s "$OUT/eboot.bin") bytes)"
     curl -sS --ftp-method nocwd -T "$OUT/eboot.bin" "$FTP/ux0:/app/$TITLE_ID/eboot.bin"

@@ -478,6 +478,7 @@ vitaGL pitfalls to remember:
 `tools/vita-loop.sh` drives a retail Vita over Wi-Fi through **vitacompanion 1.08**
 (devnoname120, MIT):
 - FTP on port 1337 replaces `ux0:app/GHVT00001/eboot.bin`.
+- `--install` installs the whole VPK instead (LiveArea / param.sfo changes): unpacked, uploaded to `ux0:data/ghvt_promote` and installed with vitacompanion's `promote`; saves and settings in `ux0:data/ghvita` stay (2026-11-19, ~35 s with launch and log collection).
 - Commands on port 1338: `quit GHVT00001`, `nosleep on`, `launch GHVT00001`, and optional
   input such as `press cross; wait 100ms; release cross`.
 - After the run it pulls `ghvita.log` / `memory.log` and any new `psp2core-*.psp2dmp`, decodes
