@@ -4,14 +4,16 @@
 # Draws the LiveArea background (sce_sys/livearea/contents/bg.png, 840x500) and the
 # bubble preview (sce_sys/pic0.png, 960x544): a dark purple brick wall with worn
 # texture, a soft light in the middle and darker edges. Fully procedural, so the
-# output is our own art.
+# output is our own art. Also the LiveArea gate (startup.png, 280x158): the
+# user's GH Vita lettering (tools/livearea/gh-vita-logo.png, on black) with the
+# black around it made transparent, so only the lettering shows over the wall.
 #
 # Needs Pillow and numpy. Usage: python3 tools/make-livearea-art.py [repo root]
 import os
 import sys
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 
 SS = 2  # supersampling factor
 SEED = 11
@@ -132,11 +134,46 @@ def add_logo(img, icon_path, height, margin):
     return out
 
 
+def make_startup(src_path, size=(280, 158), height=148):
+    """The gate: the lettering of src_path (white with black strokes, on black)
+    without the black around it. The black connected to the image's border is
+    the background; its rim gets alpha from brightness (anti-aliased edge), the
+    black strokes inside the letters stay. A soft shadow keeps it readable on
+    the wall. Scaled to `height` and centred in `size`."""
+    im = np.asarray(Image.open(src_path).convert("RGB"), np.float32) / 255
+    lum = im.mean(axis=2)
+    m = Image.fromarray(np.pad(lum < 0.5, 1, constant_values=True).astype(np.uint8) * 255).copy()
+    ImageDraw.floodfill(m, (0, 0), 128)
+    bg = (np.asarray(m) == 128)[1:-1, 1:-1]
+    rim = np.asarray(Image.fromarray(bg.astype(np.uint8) * 255).filter(ImageFilter.MaxFilter(5))) > 0
+    alpha = np.where(rim, lum, 1.0)
+    rgb = np.where(rim[..., None], 1.0, im)
+    logo = Image.fromarray((np.dstack([rgb, alpha]) * 255).astype(np.uint8), "RGBA")
+    shadow_a = Image.fromarray((alpha * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(5))
+    shadow_a = shadow_a.filter(ImageFilter.GaussianBlur(5)).point(lambda v: int(v * 0.7))
+    shadow = Image.new("RGBA", logo.size, (0, 0, 0, 0))
+    shadow.putalpha(shadow_a)
+    logo = Image.alpha_composite(shadow, logo)
+    logo = logo.crop(logo.getchannel("A").point(lambda v: 255 if v > 40 else 0).getbbox())
+    logo = logo.resize((round(logo.width * height / logo.height), height), Image.LANCZOS)
+    out = Image.new("RGBA", size, (0, 0, 0, 0))
+    out.alpha_composite(logo, ((size[0] - logo.width) // 2, (size[1] - logo.height) // 2))
+    return out
+
+
+def save_indexed_alpha(img, path):
+    # An 8-bit palette PNG whose entries carry alpha (tRNS), like the other LiveArea images.
+    img.quantize(colors=256, method=Image.Quantize.FASTOCTREE, dither=Image.Dither.NONE).save(path, optimize=True)
+    print("wrote", path)
+
+
 def main():
     root = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "..")
     save_indexed(render(840, 500, 0.6), os.path.join(root, "sce_sys/livearea/contents/bg.png"))
     pic = add_logo(render(960, 544, 1.0), os.path.join(root, "sce_sys/icon0.png"), 150, 28)
     save_indexed(pic, os.path.join(root, "sce_sys/pic0.png"))
+    gate = make_startup(os.path.join(root, "tools/livearea/gh-vita-logo.png"))
+    save_indexed_alpha(gate, os.path.join(root, "sce_sys/livearea/contents/startup.png"))
 
 
 if __name__ == "__main__":
