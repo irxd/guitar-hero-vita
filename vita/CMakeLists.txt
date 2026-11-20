@@ -16,12 +16,12 @@ endif()
 
 # Our own version (the port's releases: 0.x while it is an alpha). The gd01
 # version it is based on is read from upstream's CMakeLists.txt below.
-project(ghvita VERSION 0.2.0 LANGUAGES C CXX)
+project(ghvita VERSION 0.2.1 LANGUAGES C CXX)
 include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
 
 set(VITA_APP_NAME "GH Vita")
 set(VITA_TITLEID  "GHVT00001")   # 9 chars; chosen 2026-11-15 (was the placeholder GDDE00001)
-set(VITA_VERSION  "02.00")       # param.sfo APP_VER; the visible version is PROJECT_VERSION
+set(VITA_VERSION  "02.01")       # param.sfo APP_VER; the visible version is PROJECT_VERSION
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

@@ -39,7 +39,7 @@ Settings, saves and the log (`ghvita.log`, attach it to bug reports) are also st
 
 ## Status
 
-**v0.2.0 (alpha)**: 60 FPS by default, a PS2-style button layout using the rear touchpad or a controller's L2 / R2, and a new LiveArea. Tested on a retail PS Vita. Install steps, requirements and known issues: [docs/releases/v0.2.0.md](docs/releases/v0.2.0.md).
+**v0.2.1 (alpha)**, a bug-fix build after v0.2.0: only Start pauses a song now. v0.2.0 brought 60 FPS by default, a PS2-style button layout using the rear touchpad or a controller's L2 / R2, and a new LiveArea. Tested on a retail PS Vita. Install steps, requirements and known issues: [docs/releases/v0.2.1.md](docs/releases/v0.2.1.md).
 
 Working on the Vita:
 
