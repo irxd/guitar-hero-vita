@@ -1,0 +1,23 @@
+diff --git a/gd-game-01/engine/src/app.cpp b/gd-game-01/engine/src/app.cpp
+index 5ffab3d1..b891def7 100644
+--- a/gd-game-01/engine/src/app.cpp
++++ b/gd-game-01/engine/src/app.cpp
+@@ -20,6 +20,7 @@
+ // Modified by irxd on 2026-11-19: PS Vita: a memory line in the log at the start and end of each song load.
+ // Modified by irxd on 2026-11-19: PS Vita: Button Layout 3.
+ // Modified by irxd on 2026-11-19: PS Vita: defaults Max FPS 60 and Crowd off.
++// Modified by irxd on 2026-11-20: PS Vita: in a song only Start pauses (Circle's Back no longer does).
+ #include "app.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -2384,6 +2385,10 @@ void App::onAction(const InputEvent& e) {
+             uiButton(e);
+             break;
+         }
++        // In a song only Start pauses (the touch pause button sends Start too).
++        // Back is the Circle helper: before the highway shows (the lanes are
++        // off) and in Button Layout 3 (Circle is not a fret) it would pause.
++        if (e.action == Action::Back) break;
+ #endif
+         if ((e.action == Action::Back || e.action == Action::Start) && ui_ && ui_->inGame()) {
+             // game screen: kPad_Start goes to the pause screen.
