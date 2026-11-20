@@ -1,0 +1,49 @@
+diff --git a/gd-game-01/engine/src/ui/ui_system.cpp b/gd-game-01/engine/src/ui/ui_system.cpp
+index a67b092..b3a211d 100644
+--- a/gd-game-01/engine/src/ui/ui_system.cpp
++++ b/gd-game-01/engine/src/ui/ui_system.cpp
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: LicenseRef-GDE-PolyForm-NC-1.0.0-plus-terms
+ // Guitar Dream Engine, https://github.com/mbracali/prj-gd-engine. See LICENSE and LICENSE-ADDITIONAL-TERMS.md.
+ // Modified by irxd on 2026-11-14: PS Vita: a screen entered again clears the highlight of its last focus (two items highlighted in the store).
++// Modified by irxd on 2026-11-20: PS Vita: components a script disabled are enabled again when their screen is entered (store greyed out after an Easy career).
+ #include "ui/ui_system.h"
+ #include "ui/pc_strings.h"
+ #include "ui/gamepad_panel.h"
+@@ -275,6 +276,16 @@ public:
+             }
+         load();
+         if (name() == "status" && scene_) fillStatus();
++#if defined(__vita__)
++        // PS Vita: components a script disabled are enabled again; the panel's
++        // enter script disables what still applies. career.dta disables
++        // cm_store.btn on Easy and never enables it, so after an Easy career the
++        // store stayed greyed out on every difficulty (issue #3, 2026-11-20).
++        if (scene_)
++            for (const std::string& c : scriptDisabled_)
++                if (scene_->state(c) == UiResources::Disabled) scene_->setState(c, UiResources::Normal);
++        scriptDisabled_.clear();
++#endif
+         up_ = true;
+         std::string f = focus_;
+         if (f.empty() || (props.count("retain_last_focus") && !props["retain_last_focus"].truthy())) {
+@@ -587,6 +598,9 @@ public:
+     float loopFrame_ = 0;
+     std::unique_ptr<NativePanel> native_;  // the panel class's C++ side (select_panels.h)
+     bool paused_ = false;
++#if defined(__vita__)
++    std::vector<std::string> scriptDisabled_;  // disable_component targets, enabled again on enter
++#endif
+ };
+ 
+ // `ui` (UIManager_t1_v1 0x20aa28).
+@@ -1587,6 +1601,9 @@ bool UiSystem::PanelObj::handleNative(Interp& in, const std::string& msg, std::v
+         } else if (scene_->state(c) != UiResources::Disabled) {
+             if (c == focus_) navigate(Down);
+             scene_->setState(c, UiResources::Disabled);
++#if defined(__vita__)
++            scriptDisabled_.push_back(c);
++#endif
+         }
+         return true;
+     }
