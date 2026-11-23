@@ -1,0 +1,153 @@
+diff --git a/gd-game-01/engine/src/render/renderer.cpp b/gd-game-01/engine/src/render/renderer.cpp
+index 34c95287..c20b8b49 100644
+--- a/gd-game-01/engine/src/render/renderer.cpp
++++ b/gd-game-01/engine/src/render/renderer.cpp
+@@ -6,6 +6,7 @@
+ // Modified by irxd on 2026-11-17: PS Vita: a scene program without the alpha cutout's discard, for draws with no cutout.
+ // Modified by irxd on 2026-11-17: PS Vita: quad meshes (particles) refilled without re-uploading their indices.
+ // Modified by irxd on 2026-11-17: PS Vita: scene program variants for plain textured and untextured draws.
++// Modified by irxd on 2026-11-24: PS Vita: the lens flare occlusion queries freed with their venue, and a query id of 0 never used (issue #6 crash).
+ #include "render/renderer.h"
+ #if defined(__vita__)
+ #include "vita_display.h"  // the Vita port's vita/src: vblank interval
+@@ -908,6 +909,9 @@ struct QueryFns {
+     void(APIENTRY* begin)(GLenum, GLuint) = nullptr;
+     void(APIENTRY* end)(GLenum) = nullptr;
+     void(APIENTRY* get)(GLuint, GLenum, GLuint*) = nullptr;
++#if defined(__vita__)
++    void(APIENTRY* del)(GLsizei, const GLuint*) = nullptr;
++#endif
+ };
+ const QueryFns& queryFns() {
+     static const QueryFns f = [] {
+@@ -916,6 +920,9 @@ const QueryFns& queryFns() {
+         q.begin = reinterpret_cast<decltype(q.begin)>(SDL_GL_GetProcAddress("glBeginQuery"));
+         q.end = reinterpret_cast<decltype(q.end)>(SDL_GL_GetProcAddress("glEndQuery"));
+         q.get = reinterpret_cast<decltype(q.get)>(SDL_GL_GetProcAddress("glGetQueryObjectuiv"));
++#if defined(__vita__)
++        q.del = reinterpret_cast<decltype(q.del)>(SDL_GL_GetProcAddress("glDeleteQueries"));
++#endif
+         return q;
+     }();
+     return f;
+@@ -944,6 +951,17 @@ void Renderer::testDepthsAsync(std::vector<unsigned>& queries, const std::vector
+         queries.resize(points.size());
+         q.gen(GLsizei(queries.size() - have), queries.data() + have);
+     }
++#if defined(__vita__)
++    // PS Vita: vitaGL's glGenQueries leaves the id at 0 when its pool of 128 is
++    // empty, and a query begun with id 0 dereferences NULL (issue #6). A point
++    // without a query is not tested (its flare stays hidden, depthsPassed).
++    static bool loggedEmptyPool = false;
++    for (size_t i = 0; i < points.size() && !loggedEmptyPool; ++i)
++        if (!queries[i]) {
++            SDL_Log("vita: occlusion query pool empty: %u lens flare tests skipped (logged once)", unsigned(points.size()));
++            loggedEmptyPool = true;
++        }
++#endif
+     gl::glUseProgram(pointProgram_);
+     gl::glBindVertexArray(vao_);
+     gl::glEnable(GL_DEPTH_TEST);
+@@ -954,6 +972,9 @@ void Renderer::testDepthsAsync(std::vector<unsigned>& queries, const std::vector
+     const float W = float(std::max(viewport_[2], 1)), H = float(std::max(viewport_[3], 1));
+     for (size_t i = 0; i < points.size(); ++i) {
+         gl::glUniform3f(pos, (points[i][0] + 0.5f) / W * 2 - 1, (points[i][1] + 0.5f) / H * 2 - 1, points[i][2] * 2 - 1);
++#if defined(__vita__)
++        if (!queries[i]) continue;
++#endif
+         q.begin(kAnySamplesPassed, queries[i]);
+         gl::glDrawArrays(kPrimitivePoints, 0, 1);
+         q.end(kAnySamplesPassed);
+@@ -966,6 +987,27 @@ bool Renderer::depthsPassed(const std::vector<unsigned>& queries, size_t count,
+     if (core_) return false;
+     const QueryFns& q = queryFns();
+     if (!q.get || !count || queries.size() < count) return false;
++#if defined(__vita__)
++    // PS Vita: a point without a query (id 0, pool empty) was not tested: not
++    // passed. vitaGL dereferences id 0, so it is never read.
++    size_t last = count;
++    while (last > 0 && !queries[last - 1]) --last;
++    if (last == 0) {
++        passed.assign(count, false);
++        return true;
++    }
++    GLuint ready = 0;
++    q.get(queries[last - 1], kQueryAvailable, &ready);  // the last one done: all are
++    if (!ready) return false;
++    passed.assign(count, false);
++    for (size_t i = 0; i < count; ++i) {
++        if (!queries[i]) continue;
++        GLuint r = 0;
++        q.get(queries[i], kQueryResult, &r);
++        passed[i] = r != 0;
++    }
++    return true;
++#else
+     GLuint ready = 0;
+     q.get(queries[count - 1], kQueryAvailable, &ready);  // the last one done: all are
+     if (!ready) return false;
+@@ -976,7 +1018,19 @@ bool Renderer::depthsPassed(const std::vector<unsigned>& queries, size_t count,
+         passed[i] = r != 0;
+     }
+     return true;
++#endif
++}
++
++#if defined(__vita__)
++void Renderer::deleteQueries(std::vector<unsigned>& queries) {
++    const QueryFns& q = queryFns();
++    std::vector<GLuint> ids;
++    for (unsigned id : queries)
++        if (id) ids.push_back(id);  // vitaGL dereferences id 0
++    if (q.del && !ids.empty()) q.del(GLsizei(ids.size()), ids.data());
++    queries.clear();
+ }
++#endif
+ 
+ float Renderer::beginWide(float maxAspect) {
+     if (core_) return core_->beginWide(maxAspect);
+diff --git a/gd-game-01/engine/src/render/renderer.h b/gd-game-01/engine/src/render/renderer.h
+index 7d72f09b..2f70db3b 100644
+--- a/gd-game-01/engine/src/render/renderer.h
++++ b/gd-game-01/engine/src/render/renderer.h
+@@ -4,6 +4,7 @@
+ // Modified by irxd on 2026-11-17: PS Vita: a scene program without the alpha cutout's discard, for draws with no cutout.
+ // Modified by irxd on 2026-11-17: PS Vita: quad meshes (particles) refilled without re-uploading their indices.
+ // Modified by irxd on 2026-11-17: PS Vita: scene program variants for plain textured and untextured draws.
++// Modified by irxd on 2026-11-24: PS Vita: the lens flare occlusion queries freed with their venue, and a query id of 0 never used (issue #6 crash).
+ #pragma once
+ 
+ #include <SDL3/SDL.h>
+@@ -110,6 +111,10 @@ public:
+     // scene's depth instead; depthsPassed fills `passed` once the GPU is done.
+     void testDepthsAsync(std::vector<unsigned>& queries, const std::vector<std::array<float, 3>>& points);
+     bool depthsPassed(const std::vector<unsigned>& queries, size_t count, std::vector<bool>& passed);
++#if defined(__vita__)
++    // PS Vita: frees testDepthsAsync's queries (vitaGL has a fixed pool of 128).
++    void deleteQueries(std::vector<unsigned>& queries);
++#endif
+ 
+     // Track fade (docs/track_fade_plan.md): copies the framebuffer under the
+     // NDC rect (x0, y0)-(x1, y1) of the current viewport into grab texture
+diff --git a/gd-game-01/engine/src/render/scene_renderer.cpp b/gd-game-01/engine/src/render/scene_renderer.cpp
+index 118cf77e..67c46868 100644
+--- a/gd-game-01/engine/src/render/scene_renderer.cpp
++++ b/gd-game-01/engine/src/render/scene_renderer.cpp
+@@ -5,6 +5,7 @@
+ // Modified by irxd on 2026-11-11: PS Vita: a character's consecutive skinned pieces drawn as merged meshes with a bone palette.
+ // Modified by irxd on 2026-11-11: PS Vita: the merged character meshes freed with their SceneRenderer (they leaked per venue).
+ // Modified by irxd on 2026-11-17: PS Vita: particle quads built in a reused buffer, their index pattern uploaded once.
++// Modified by irxd on 2026-11-24: PS Vita: the lens flare occlusion queries freed with their venue, and a query id of 0 never used (issue #6 crash).
+ #include "render/scene_renderer.h"
+ 
+ #include "render/gl.h"
+@@ -295,6 +296,9 @@ SceneRenderer::~SceneRenderer() {
+ #if defined(__vita__)
+     for (const VitaMerged& m : vitaMerged_)
+         for (const VitaChunk& chunk : m.chunks) renderer_.deleteMesh(chunk.mesh);
++    // The lens flare occlusion queries: never freed upstream, they used up
++    // vitaGL's pool of 128 venue by venue until a crash (issue #6).
++    for (FlareBatch& b : flareRing_) renderer_.deleteQueries(b.queries);
+ #endif
+ }
+ 
