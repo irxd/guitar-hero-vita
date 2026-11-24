@@ -1,0 +1,110 @@
+diff --git a/gd-game-01/engine/src/render/renderer.cpp b/gd-game-01/engine/src/render/renderer.cpp
+index c85f3dae..30d89cd6 100644
+--- a/gd-game-01/engine/src/render/renderer.cpp
++++ b/gd-game-01/engine/src/render/renderer.cpp
+@@ -7,6 +7,7 @@
+ // Modified by irxd on 2026-11-17: PS Vita: quad meshes (particles) refilled without re-uploading their indices.
+ // Modified by irxd on 2026-11-17: PS Vita: scene program variants for plain textured and untextured draws.
+ // Modified by irxd on 2026-11-24: PS Vita: the lens flare occlusion queries freed with their venue, and a query id of 0 never used (issue #6 crash).
++// Modified by irxd on 2026-11-24: PS Vita: the crowd impostor render targets freed with their venue (Renderer::deleteRenderTarget).
+ #include "render/renderer.h"
+ #if defined(__vita__)
+ #include "vita_display.h"  // the Vita port's vita/src: vblank interval
+@@ -713,9 +714,24 @@ int Renderer::createRenderTarget(int width, int height) {
+     textures_.push_back(tex);
+     int handle = static_cast<int>(textures_.size()) - 1;
+     targets_[handle] = {fbo, width, height};
++#if defined(__vita__)
++    targets_[handle].depth = depth;
++#endif
+     return handle;
+ }
+ 
++#if defined(__vita__)
++void Renderer::deleteRenderTarget(int texture) {
++    if (core_ || !context_) return;
++    auto it = targets_.find(texture);
++    if (it == targets_.end()) return;
++    gl::glDeleteFramebuffers(1, &it->second.fbo);
++    gl::glDeleteRenderbuffers(1, &it->second.depth);
++    targets_.erase(it);
++    deleteTexture(texture);
++}
++#endif
++
+ void Renderer::beginRenderTarget(int texture) {
+     if (core_) return core_->beginRenderTarget(texture);
+     auto it = targets_.find(texture);
+diff --git a/gd-game-01/engine/src/render/renderer.h b/gd-game-01/engine/src/render/renderer.h
+index 2f70db3b..fa1d0ff4 100644
+--- a/gd-game-01/engine/src/render/renderer.h
++++ b/gd-game-01/engine/src/render/renderer.h
+@@ -5,6 +5,7 @@
+ // Modified by irxd on 2026-11-17: PS Vita: quad meshes (particles) refilled without re-uploading their indices.
+ // Modified by irxd on 2026-11-17: PS Vita: scene program variants for plain textured and untextured draws.
+ // Modified by irxd on 2026-11-24: PS Vita: the lens flare occlusion queries freed with their venue, and a query id of 0 never used (issue #6 crash).
++// Modified by irxd on 2026-11-24: PS Vita: the crowd impostor render targets freed with their venue (Renderer::deleteRenderTarget).
+ #pragma once
+ 
+ #include <SDL3/SDL.h>
+@@ -187,6 +188,10 @@ public:
+     // handle usable in RenderState::texture (0 on failure); between begin and
+     // end, draws go to the target (cleared to transparent).
+     int createRenderTarget(int width, int height);
++#if defined(__vita__)
++    // PS Vita: frees a render target (its texture, depth buffer and framebuffer).
++    void deleteRenderTarget(int texture);
++#endif
+     void beginRenderTarget(int texture);
+     void endRenderTarget();
+ 
+@@ -318,7 +323,13 @@ private:
+     unsigned blurProgram_ = 0, blurTex_ = 0;
+     int blurSize_[2] = {0, 0};
+     int uBlurTex_ = -1, uBlurDepth_ = -1, uBlurTap_ = -1, uBlurSize_ = -1, uBlurOrigin_ = -1;
+-    struct RenderTarget { unsigned fbo = 0; int width = 0, height = 0; };
++    struct RenderTarget {
++        unsigned fbo = 0;
++        int width = 0, height = 0;
++#if defined(__vita__)
++        unsigned depth = 0;  // its depth renderbuffer, for deleteRenderTarget
++#endif
++    };
+     std::map<int, RenderTarget> targets_;  // by texture handle
+     float screenMvp_[16];
+ };
+diff --git a/gd-game-01/engine/src/render/crowd_renderer.cpp b/gd-game-01/engine/src/render/crowd_renderer.cpp
+index eaaf6c72..a59ca0d6 100644
+--- a/gd-game-01/engine/src/render/crowd_renderer.cpp
++++ b/gd-game-01/engine/src/render/crowd_renderer.cpp
+@@ -4,6 +4,7 @@
+ // Modified by irxd on 2026-11-12: PS Vita: the impostors refreshed in a set number of groups (3 at 60 FPS).
+ // Modified by irxd on 2026-11-11: PS Vita: Crowd setting (on: at most 8 3D members, the nearest first; off: hidden).
+ // Modified by irxd on 2026-11-17: PS Vita: flat sprites without the alpha cutout, blended far to near, batched.
++// Modified by irxd on 2026-11-24: PS Vita: the crowd impostor render targets freed with their venue (Renderer::deleteRenderTarget).
+ #include "render/crowd_renderer.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -191,6 +192,10 @@ void CrowdRenderer::setVitaImpostorGroups(int groups) { gVitaImpostorGroups = st
+ CrowdRenderer::~CrowdRenderer() {
+     for (int mesh : vitaSpriteMeshes_)
+         if (mesh > 0) renderer_.deleteMesh(mesh);
++    // The impostors' render targets: never freed upstream, 6 textures, depth
++    // buffers and framebuffers were left behind per venue (issue #6).
++    for (const Member& m : members_)
++        if (m.target > 0) renderer_.deleteRenderTarget(m.target);
+ }
+ #endif
+ 
+diff --git a/gd-game-01/engine/src/render/crowd_renderer.h b/gd-game-01/engine/src/render/crowd_renderer.h
+index e6ab328b..062200ca 100644
+--- a/gd-game-01/engine/src/render/crowd_renderer.h
++++ b/gd-game-01/engine/src/render/crowd_renderer.h
+@@ -4,6 +4,7 @@
+ // Modified by irxd on 2026-11-11: PS Vita: Crowd setting (on: at most 8 3D members, the nearest first; off: hidden).
+ // Modified by irxd on 2026-11-12: PS Vita: impostor refresh groups (setVitaImpostorGroups).
+ // Modified by irxd on 2026-11-17: PS Vita: flat sprites without the alpha cutout, blended far to near, batched.
++// Modified by irxd on 2026-11-24: PS Vita: the crowd impostor render targets freed with their venue (Renderer::deleteRenderTarget).
+ #pragma once
+ 
+ #include <array>

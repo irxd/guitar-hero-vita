@@ -94,8 +94,14 @@ struct LiveTexture {
     uint32_t bytes;
     uint32_t rgbaBytes;  // its size as RGBA8 (what paletting saved: rgbaBytes - bytes)
     bool paletted;
+    uint16_t era;  // gTextureEra at its first upload
+    uint16_t w, h;
 };
 std::unordered_map<GLuint, LiveTexture> gLiveTextures;
+// Texture eras, for finding leaks across songs: 0 = boot and the menus before
+// the first song; each song load / ready line starts the next (odd = loading a
+// song, even = playing it and the menus after it).
+uint16_t gTextureEra = 0;
 
 // --- Frame statistics ------------------------------------------------------
 // Every 5 s, ghvita.log gets the frame rate and, per frame, the CPU time
@@ -518,12 +524,15 @@ void hookTexImage2D(GLenum target, GLint level, GLint internal, GLsizei w, GLsiz
                                   type == GL_UNSIGNED_BYTE && (internal == GL_RGBA || internal == GL_RGBA8) &&
                                   w * h >= kPaletteMinTexels;
             const uint32_t texels = uint32_t(w) * uint32_t(h);
+            const auto old = gLiveTextures.find(tex);
+            const uint16_t era = old != gLiveTextures.end() ? old->second.era : gTextureEra;  // a re-upload keeps its era
             if (eligible && uploadPaletted(target, w, h, pixels)) {
                 gPaletted.insert(tex);
-                gLiveTextures[tex] = {texels + uint32_t(vita::kPalette8Bytes), texels * 4, true};
+                gLiveTextures[tex] = {texels + uint32_t(vita::kPalette8Bytes), texels * 4, true, era, uint16_t(w), uint16_t(h)};
                 return;
             }
-            gLiveTextures[tex] = {texels * 4, texels * 4, false};  // also render targets (no pixels); other formats as 4 bytes a texel
+            // Also render targets (no pixels); other formats as 4 bytes a texel.
+            gLiveTextures[tex] = {texels * 4, texels * 4, false, era, uint16_t(w), uint16_t(h)};
         }
     }
     realTexImage2D(target, level, internal, w, h, border, format, type, pixels);
@@ -830,6 +839,14 @@ void initVitaGl() {
             paramMb > 0 ? (std::to_string(paramMb) + " MB").c_str() : "default");
     vglInitExtended(0, kScreenWidth, kScreenHeight, kVglRamThreshold, SCE_GXM_MULTISAMPLE_NONE);
     gVglReady = true;
+    // Test only: GHVITA_EAT_VRAM_MB=N (args.txt) keeps N MB of vitaGL's VRAM
+    // allocated for the whole run, to reproduce a late career session's
+    // memory pressure on a fresh start (issue #6). Never freed.
+    if (const int eatMb = envInt("GHVITA_EAT_VRAM_MB", 0); eatMb > 0) {
+        void* eaten = vglAlloc(uint32_t(eatMb) << 20, VGL_MEM_VRAM);
+        SDL_Log("vita: GHVITA_EAT_VRAM_MB: %d MB of VRAM held (test only): %s; free VRAM now %u MB", eatMb, eaten ? "ok" : "FAILED",
+                unsigned(vglMemFree(VGL_MEM_VRAM) >> 20));
+    }
     GLint maxAttribs = 0;
     glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &maxAttribs);
     if (maxAttribs > 0) gVertexIdLocation = GLuint(maxAttribs - 1);  // gd01 uses 0..4
@@ -985,6 +1002,29 @@ void reportSongLoadMemory(const char* stage, const char* song) {
     char when[96];
     std::snprintf(when, sizeof when, "song %s: %s", stage, song ? song : "?");
     ::reportMemory(when, true);
+    // At a song load: the live textures by the era they were made in, and the
+    // commonest sizes among those left from earlier songs (eras 1 .. now - 1:
+    // with the last venue freed, these should be few).
+    if (std::strcmp(stage, "load") == 0) {
+        std::map<uint16_t, std::pair<unsigned, uint64_t>> byEra;
+        std::map<std::pair<uint16_t, uint16_t>, unsigned> leftSizes;
+        for (const auto& [tex, t] : gLiveTextures) {
+            auto& e = byEra[t.era];
+            ++e.first, e.second += t.bytes;
+            if (t.era >= 1) ++leftSizes[{t.w, t.h}];
+        }
+        std::string line;
+        for (const auto& [era, e] : byEra) line += " " + std::to_string(era) + ":" + std::to_string(e.first) + "/" + std::to_string(e.second >> 10) + "K";
+        SDL_Log("vita: live textures by era (era:count/size; now era %u):%s", unsigned(gTextureEra) + 1, line.c_str());
+        std::vector<std::pair<unsigned, std::pair<uint16_t, uint16_t>>> top;
+        for (const auto& [size, n] : leftSizes) top.push_back({n, size});
+        std::sort(top.rbegin(), top.rend());
+        line.clear();
+        for (size_t i = 0; i < top.size() && i < 8; ++i)
+            line += " " + std::to_string(top[i].second.first) + "x" + std::to_string(top[i].second.second) + ":" + std::to_string(top[i].first);
+        if (!line.empty()) SDL_Log("vita: textures left from earlier songs, commonest sizes:%s", line.c_str());
+    }
+    ++gTextureEra;
 }
 
 void profilePhase(const char* name) {
