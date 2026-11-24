@@ -39,7 +39,7 @@ Settings, saves and the log (`ghvita.log`, attach it to bug reports) are also st
 
 ## Status
 
-**v0.2.3 (alpha)**, a bug-fix build: fixes a crash after about an hour of play (error C2-12828-1). Since v0.2.2 the store no longer stays locked after an Easy career, and since v0.2.1 only Start pauses a song. v0.2.0 brought 60 FPS by default, a PS2-style button layout using the rear touchpad or a controller's L2 / R2, and a new LiveArea. Tested on a retail PS Vita. Install steps, requirements and known issues: [docs/releases/v0.2.3.md](docs/releases/v0.2.3.md).
+**v0.2.4 (alpha)**, a bug-fix build: fixes black or white backgrounds and growing memory use in long career sessions, and lowers memory use when retrying a song. v0.2.3 fixed a crash after about an hour of play (error C2-12828-1). Since v0.2.2 the store no longer stays locked after an Easy career, and since v0.2.1 only Start pauses a song. v0.2.0 brought 60 FPS by default, a PS2-style button layout using the rear touchpad or a controller's L2 / R2, and a new LiveArea. Tested on a retail PS Vita. Install steps, requirements and known issues: [docs/releases/v0.2.4.md](docs/releases/v0.2.4.md).
 
 Working on the Vita:
 
