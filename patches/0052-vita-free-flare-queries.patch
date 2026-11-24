@@ -1,5 +1,5 @@
 diff --git a/gd-game-01/engine/src/render/renderer.cpp b/gd-game-01/engine/src/render/renderer.cpp
-index 34c95287..c20b8b49 100644
+index 34c95287..c85f3dae 100644
 --- a/gd-game-01/engine/src/render/renderer.cpp
 +++ b/gd-game-01/engine/src/render/renderer.cpp
 @@ -6,6 +6,7 @@
@@ -10,7 +10,7 @@ index 34c95287..c20b8b49 100644
  #include "render/renderer.h"
  #if defined(__vita__)
  #include "vita_display.h"  // the Vita port's vita/src: vblank interval
-@@ -908,6 +909,9 @@ struct QueryFns {
+@@ -908,7 +909,13 @@ struct QueryFns {
      void(APIENTRY* begin)(GLenum, GLuint) = nullptr;
      void(APIENTRY* end)(GLenum) = nullptr;
      void(APIENTRY* get)(GLuint, GLenum, GLuint*) = nullptr;
@@ -18,9 +18,13 @@ index 34c95287..c20b8b49 100644
 +    void(APIENTRY* del)(GLsizei, const GLuint*) = nullptr;
 +#endif
  };
++#if defined(__vita__)
++unsigned gVitaLiveQueries = 0;  // testDepthsAsync's queries not yet deleted (log only)
++#endif
  const QueryFns& queryFns() {
      static const QueryFns f = [] {
-@@ -916,6 +920,9 @@ const QueryFns& queryFns() {
+         QueryFns q;
+@@ -916,6 +923,9 @@ const QueryFns& queryFns() {
          q.begin = reinterpret_cast<decltype(q.begin)>(SDL_GL_GetProcAddress("glBeginQuery"));
          q.end = reinterpret_cast<decltype(q.end)>(SDL_GL_GetProcAddress("glEndQuery"));
          q.get = reinterpret_cast<decltype(q.get)>(SDL_GL_GetProcAddress("glGetQueryObjectuiv"));
@@ -30,9 +34,16 @@ index 34c95287..c20b8b49 100644
          return q;
      }();
      return f;
-@@ -944,6 +951,17 @@ void Renderer::testDepthsAsync(std::vector<unsigned>& queries, const std::vector
+@@ -943,7 +953,24 @@ void Renderer::testDepthsAsync(std::vector<unsigned>& queries, const std::vector
+         size_t have = queries.size();
          queries.resize(points.size());
          q.gen(GLsizei(queries.size() - have), queries.data() + have);
++#if defined(__vita__)
++        unsigned made = 0;
++        for (size_t i = have; i < queries.size(); ++i) made += queries[i] != 0;
++        gVitaLiveQueries += made;
++        SDL_Log("vita: %u occlusion queries created (%u live, vitaGL has 128)", made, gVitaLiveQueries);
++#endif
      }
 +#if defined(__vita__)
 +    // PS Vita: vitaGL's glGenQueries leaves the id at 0 when its pool of 128 is
@@ -48,7 +59,7 @@ index 34c95287..c20b8b49 100644
      gl::glUseProgram(pointProgram_);
      gl::glBindVertexArray(vao_);
      gl::glEnable(GL_DEPTH_TEST);
-@@ -954,6 +972,9 @@ void Renderer::testDepthsAsync(std::vector<unsigned>& queries, const std::vector
+@@ -954,6 +981,9 @@ void Renderer::testDepthsAsync(std::vector<unsigned>& queries, const std::vector
      const float W = float(std::max(viewport_[2], 1)), H = float(std::max(viewport_[3], 1));
      for (size_t i = 0; i < points.size(); ++i) {
          gl::glUniform3f(pos, (points[i][0] + 0.5f) / W * 2 - 1, (points[i][1] + 0.5f) / H * 2 - 1, points[i][2] * 2 - 1);
@@ -58,7 +69,7 @@ index 34c95287..c20b8b49 100644
          q.begin(kAnySamplesPassed, queries[i]);
          gl::glDrawArrays(kPrimitivePoints, 0, 1);
          q.end(kAnySamplesPassed);
-@@ -966,6 +987,27 @@ bool Renderer::depthsPassed(const std::vector<unsigned>& queries, size_t count,
+@@ -966,6 +996,27 @@ bool Renderer::depthsPassed(const std::vector<unsigned>& queries, size_t count,
      if (core_) return false;
      const QueryFns& q = queryFns();
      if (!q.get || !count || queries.size() < count) return false;
@@ -86,7 +97,7 @@ index 34c95287..c20b8b49 100644
      GLuint ready = 0;
      q.get(queries[count - 1], kQueryAvailable, &ready);  // the last one done: all are
      if (!ready) return false;
-@@ -976,7 +1018,19 @@ bool Renderer::depthsPassed(const std::vector<unsigned>& queries, size_t count,
+@@ -976,7 +1027,23 @@ bool Renderer::depthsPassed(const std::vector<unsigned>& queries, size_t count,
          passed[i] = r != 0;
      }
      return true;
@@ -99,7 +110,11 @@ index 34c95287..c20b8b49 100644
 +    std::vector<GLuint> ids;
 +    for (unsigned id : queries)
 +        if (id) ids.push_back(id);  // vitaGL dereferences id 0
-+    if (q.del && !ids.empty()) q.del(GLsizei(ids.size()), ids.data());
++    if (q.del && !ids.empty()) {
++        q.del(GLsizei(ids.size()), ids.data());
++        gVitaLiveQueries -= std::min(gVitaLiveQueries, unsigned(ids.size()));
++        SDL_Log("vita: %u occlusion queries freed (%u live)", unsigned(ids.size()), gVitaLiveQueries);
++    }
 +    queries.clear();
  }
 +#endif
