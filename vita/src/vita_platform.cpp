@@ -86,9 +86,16 @@ constexpr const char* kMemoryLogPath = "ux0:data/ghvita/memory.log";
 constexpr uint64_t kMemoryReportNs = 10'000'000'000ull;  // ghvita.log report every 10 s
 uint64_t gNextMemoryReport = 0;
 size_t gPeakHeapUsed = 0;
-// Texture upload counters (paletted textures, below).
-unsigned gPaletteCount = 0, gRgbaCount = 0;
-uint64_t gPaletteSavedBytes = 0, gRgbaBytes = 0;
+// The textures alive now (uploaded at level 0 and not deleted), for the memory
+// line: their level-0 size (an RGBA texture's mip levels add up to a third
+// more) and whether it is paletted (below). Until v0.2.2 the line counted
+// every upload ever made, so a movie's frames or a freed venue kept adding.
+struct LiveTexture {
+    uint32_t bytes;
+    uint32_t rgbaBytes;  // its size as RGBA8 (what paletting saved: rgbaBytes - bytes)
+    bool paletted;
+};
+std::unordered_map<GLuint, LiveTexture> gLiveTextures;
 
 // --- Frame statistics ------------------------------------------------------
 // Every 5 s, ghvita.log gets the frame rate and, per frame, the CPU time
@@ -344,9 +351,15 @@ void reportMemory(const char* when, bool gpu) {
         std::snprintf(gpuPart, sizeof gpuPart, "; vitaGL free VRAM %u MB, RAM %u MB", unsigned(vglMemFree(VGL_MEM_VRAM) >> 20),
                       unsigned(vglMemFree(VGL_MEM_RAM) >> 20));
     }
-    SDL_Log("vita: memory [%s]: heap %u / %u MB (peak %u MB)%s; textures: %u paletted (%u MB saved), %u RGBA (%u MB)", when,
-            unsigned(mi.uordblks >> 20), unsigned(_newlib_heap_size_user >> 20), unsigned(gPeakHeapUsed >> 20), gpuPart,
-            gPaletteCount, unsigned(gPaletteSavedBytes >> 20), gRgbaCount, unsigned(gRgbaBytes >> 20));
+    unsigned paletted = 0, rgba = 0;
+    uint64_t palettedBytes = 0, rgbaBytes = 0, savedBytes = 0;
+    for (const auto& [tex, t] : gLiveTextures) {
+        if (t.paletted) ++paletted, palettedBytes += t.bytes, savedBytes += t.rgbaBytes - t.bytes;
+        else ++rgba, rgbaBytes += t.bytes;
+    }
+    SDL_Log("vita: memory [%s]: heap %u / %u MB (peak %u MB)%s; live textures: %u paletted (%u MB, %u MB saved), %u RGBA (%u MB)",
+            when, unsigned(mi.uordblks >> 20), unsigned(_newlib_heap_size_user >> 20), unsigned(gPeakHeapUsed >> 20), gpuPart,
+            paletted, unsigned(palettedBytes >> 20), unsigned(savedBytes >> 20), rgba, unsigned(rgbaBytes >> 20));
 }
 
 // --- Stand-ins for GL functions vitaGL does not have ---------------------
@@ -504,13 +517,13 @@ void hookTexImage2D(GLenum target, GLint level, GLint internal, GLsizei w, GLsiz
             const bool eligible = kPaletteTextures && !gPaletteDisabled && !dynamic && pixels && border == 0 && format == GL_RGBA &&
                                   type == GL_UNSIGNED_BYTE && (internal == GL_RGBA || internal == GL_RGBA8) &&
                                   w * h >= kPaletteMinTexels;
+            const uint32_t texels = uint32_t(w) * uint32_t(h);
             if (eligible && uploadPaletted(target, w, h, pixels)) {
                 gPaletted.insert(tex);
-                ++gPaletteCount;
-                gPaletteSavedBytes += uint64_t(w) * uint64_t(h) * 3 - vita::kPalette8Bytes;
+                gLiveTextures[tex] = {texels + uint32_t(vita::kPalette8Bytes), texels * 4, true};
                 return;
             }
-            if (pixels) ++gRgbaCount, gRgbaBytes += uint64_t(w) * uint64_t(h) * 4;
+            gLiveTextures[tex] = {texels * 4, texels * 4, false};  // also render targets (no pixels); other formats as 4 bytes a texel
         }
     }
     realTexImage2D(target, level, internal, w, h, border, format, type, pixels);
@@ -531,7 +544,8 @@ void hookTexParameteri(GLenum target, GLenum pname, GLint param) {
 }
 
 void hookDeleteTextures(GLsizei n, const GLuint* textures) {
-    for (GLsizei i = 0; i < n; ++i) gPaletted.erase(textures[i]), gMinFilter.erase(textures[i]), gUploadedOnce.erase(textures[i]);
+    for (GLsizei i = 0; i < n; ++i)
+        gPaletted.erase(textures[i]), gMinFilter.erase(textures[i]), gUploadedOnce.erase(textures[i]), gLiveTextures.erase(textures[i]);
     realDeleteTextures(n, textures);
 }
 
