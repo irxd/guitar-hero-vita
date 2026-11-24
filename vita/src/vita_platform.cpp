@@ -62,6 +62,10 @@
 // vita/CMakeLists.txt). [verify] tune with the memory reports in ghvita.log.
 extern "C" {
 int _newlib_heap_size_user = 256 * 1024 * 1024;
+// vitaGL internals (gxm.c, pinned vitaGL e1473ff; tools/build-vitagl.sh): its
+// garbage collector's semaphores, [0] push (run a cycle), [1] pull (free
+// slots), used by vita::flushGpuFrees. Recheck on a vitaGL update.
+extern SceUID gc_mutex[2];
 // The real SDL function, behind -Wl,--wrap (asynchronous log below).
 void __real_SDL_SetLogOutputFunction(SDL_LogOutputFunction callback, void* userdata);
 }
@@ -73,6 +77,7 @@ constexpr const char* kLogPath = "ux0:data/ghvita/ghvita.log";
 constexpr const char* kArgsPath = "ux0:data/ghvita/args.txt";
 constexpr int kScreenWidth = 960, kScreenHeight = 544;
 constexpr int kVglRamThreshold = 16 * 1024 * 1024;
+constexpr int kVglPurgeFreq = 4;  // vitaGL's FRAME_PURGE_FREQ (shared.h): frame slots of deferred frees
 
 bool gVglReady = false;
 int gContextToken = 0;  // its address is the one SDL_GLContext handed out
@@ -1025,6 +1030,25 @@ void reportSongLoadMemory(const char* stage, const char* song) {
         if (!line.empty()) SDL_Log("vita: textures left from earlier songs, commonest sizes:%s", line.c_str());
     }
     ++gTextureEra;
+}
+
+void flushGpuFrees() {
+    const uint64_t t0 = SDL_GetTicksNS();
+    vita::glthread::Direct direct;  // the GL thread drained and idle
+    const unsigned before = unsigned(vglMemFree(VGL_MEM_VRAM) >> 20);
+    glFinish();  // the GPU done with everything released: safe to free it all
+    // vitaGL's own swap handshake (gxm.c, vglSwapBuffers), once per frame slot:
+    // take a free slot (pull), ask for a cycle (push). Then wait until every
+    // cycle has run (all slots free again) and give the slots back.
+    for (int i = 0; i < kVglPurgeFreq; ++i) {
+        sceKernelWaitSema(gc_mutex[1], 1, nullptr);
+        sceKernelSignalSema(gc_mutex[0], 1);
+    }
+    sceKernelWaitSema(gc_mutex[1], kVglPurgeFreq, nullptr);
+    sceKernelSignalSema(gc_mutex[1], kVglPurgeFreq);
+    const unsigned after = unsigned(vglMemFree(VGL_MEM_VRAM) >> 20);
+    SDL_Log("vita: GPU frees flushed before the song load (venue dropped with no frames between): free VRAM %u -> %u MB in %.1f ms",
+            before, after, double(SDL_GetTicksNS() - t0) / 1e6);
 }
 
 void profilePhase(const char* name) {

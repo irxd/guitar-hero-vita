@@ -34,4 +34,11 @@ void countCulledDraw();
 // frame. Lines from load to load show a leak across songs (issue #1).
 void reportSongLoadMemory(const char* stage, const char* song);
 
+// Frees now what vitaGL would free a few frame swaps after a release: waits
+// for the GL thread and the GPU, then runs vitaGL's garbage collector over all
+// its frame slots. For a song loaded right after a venue was dropped (a retry:
+// no frames in between), so the old venue's GPU memory is not still held while
+// the new one loads (issue #6). Logs the free VRAM before and after.
+void flushGpuFrees();
+
 }  // namespace vita
